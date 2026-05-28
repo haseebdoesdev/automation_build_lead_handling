@@ -43,7 +43,19 @@ class NegotiationTriggerLogEntry:
 
 @dataclass
 class LeadRecord:
-    """Inbound lead / CRM snapshot used across modules."""
+    """Inbound lead / CRM snapshot used across modules.
+
+    Typical **form submit** gives: full name (split into first/last by CRM), business name,
+    email, phone, ``country`` (US or CA — drives footer and pricing matrix), lead source,
+    submission time (store outside this record). Optionally: approximate review count,
+    urgency, free-text notes — map notes into fields your pipeline supports.
+
+    Often **unknown until conversation or GBP review**: ``recency_profile`` (use
+    ``UNCERTAIN`` until known — commercial tier picks conservatively), granular review count,
+    ``business_category`` / high-ticket vertical unless inferred from business name,
+    which specific reviews matter, image vs non-image. The conversation layer should ask for
+    these; CRM updates ``LeadRecord`` as facts arrive.
+    """
 
     lead_id: str
     first_name: str

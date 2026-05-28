@@ -135,7 +135,7 @@ def test_negotiation_past_step_two_escalates() -> None:
     assert r.authorized_quote_usd_per_review is None
 
 
-def test_bulk_tier_us6_only_when_mixed_and_price_sensitive() -> None:
+def test_bulk_tier_us6_when_mixed_and_five_plus_reviews() -> None:
     eng = CommercialEngine()
     us5 = _base_lead(
         review_count=5,
@@ -152,3 +152,11 @@ def test_bulk_tier_us6_only_when_mixed_and_price_sensitive() -> None:
         business_category="retail",
     )
     assert eng.evaluate_pricing(us6, wants_price=True).tier_id == "US-6"
+
+    us6_no_flag = _base_lead(
+        review_count=5,
+        recency_profile=RecencyProfile.MIXED,
+        is_price_sensitive_bulk=False,
+        business_category="retail",
+    )
+    assert eng.evaluate_pricing(us6_no_flag, wants_price=True).tier_id == "US-6"

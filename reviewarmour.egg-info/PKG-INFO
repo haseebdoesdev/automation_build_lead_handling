@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: reviewarmour
+Version: 0.1.0
+Summary: ReviewArmour AI layer: commercial reasoning, self-correction, conversation
+Requires-Python: >=3.10
+Requires-Dist: anthropic>=0.40.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Provides-Extra: tester
+Requires-Dist: nicegui>=2.0.0; extra == "tester"

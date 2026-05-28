@@ -30,6 +30,28 @@ HIGH_TICKET_CATEGORIES = frozenset(
     }
 )
 
+# CRM sometimes stores a generic industry; infer vertical from public business name in that case only.
+_VERTICAL_AMBIGUOUS_CATEGORIES = frozenset(
+    {
+        "other",
+        "unknown",
+        "services",
+        "general",
+        "health care",
+        "healthcare",
+        "medical",
+        "health",
+        "professional services",
+        "small business",
+    }
+)
+
+
+# Extra substrings for business_name hints (not necessarily CRM category labels).
+_NAME_HIGH_TICKET_EXTRA = frozenset(
+    {"dentistry", "orthodont", "endodont", "periodont", "law firm", "plumb", "hvac"}
+)
+
 
 def _normalize_category(cat: str) -> str:
     return " ".join(cat.strip().lower().split())
@@ -42,6 +64,32 @@ def _is_high_ticket(business_category: str) -> bool:
     for token in HIGH_TICKET_CATEGORIES:
         if token in n:
             return True
+    return False
+
+
+def _business_name_suggests_high_ticket(name: str) -> bool:
+    """When CRM category is missing or generic, infer vertical from public business name."""
+    n = _normalize_category(name)
+    if not n:
+        return False
+    for token in HIGH_TICKET_CATEGORIES:
+        if token in n:
+            return True
+    for token in _NAME_HIGH_TICKET_EXTRA:
+        if token in n:
+            return True
+    return False
+
+
+def _is_high_ticket_lead(lead: LeadRecord) -> bool:
+    """High-ticket / ladder-2 tier eligibility (US-2 / CA-2 path)."""
+    if _is_high_ticket(lead.business_category):
+        return True
+    cat_norm = _normalize_category(lead.business_category or "")
+    if (not cat_norm or cat_norm in _VERTICAL_AMBIGUOUS_CATEGORIES) and (
+        lead.business_name and _business_name_suggests_high_ticket(lead.business_name)
+    ):
+        return True
     return False
 
 
@@ -70,14 +118,15 @@ def _pick_tier(lead: LeadRecord) -> TierBand:
     country = lead.country
     n = lead.review_count
     recency = lead.recency_profile
-    price_sensitive = lead.is_price_sensitive_bulk
 
     bulk_tier = (
         TierBand("US-6", 400, 375, 325, 250)
         if country == Country.US
         else TierBand("CA-6", 300, 275, 250, 200)
     )
-    if n >= 5 and price_sensitive and recency == RecencyProfile.MIXED:
+    # Bulk mixed profile: 5+ reviews with MIXED recency (volume + age spread) → CA/US-6.
+    # Do not require is_price_sensitive_bulk; 8-review mixed leads must not fall through to US-5.
+    if n >= 5 and recency == RecencyProfile.MIXED:
         return bulk_tier
 
     if n >= 3:
@@ -96,7 +145,8 @@ def _pick_tier(lead: LeadRecord) -> TierBand:
 
     # 1–2 reviews
     bucket = _tier_recency_bucket_for_matrix(recency)
-    if n == 1 and bucket == "under" and _is_high_ticket(lead.business_category):
+    # 1–2 reviews, under-month: US-2 / CA-2 for high-ticket verticals (category or business name).
+    if n <= 2 and bucket == "under" and _is_high_ticket_lead(lead):
         return (
             TierBand("US-2", 500, 475, 450, 350)
             if country == Country.US
@@ -161,13 +211,12 @@ class CommercialResult:
     commercial_turn: Optional[CommercialTurnMarker] = None
 
     def to_prompt_dict(self) -> dict:
-        """Safe for conversation model: no hidden cost internals."""
+        """Safe for conversation model: no hidden cost internals or undisclosed floor."""
         return {
             "tier_id": self.tier_id,
             "opening": self.opening,
             "neg_1": self.neg_1,
             "neg_2": self.neg_2,
-            "floor": self.floor,
             "negotiation_step": self.negotiation_step,
             "authorized_quote_usd_per_review": self.authorized_quote_usd_per_review,
             "can_quote": self.can_quote,

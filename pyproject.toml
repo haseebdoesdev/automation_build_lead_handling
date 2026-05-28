@@ -1,3 +1,10 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["reviewarmour"]
+
 [project]
 name = "reviewarmour"
 version = "0.1.0"
@@ -11,6 +18,16 @@ dependencies = [
 dev = [
   "pytest>=7.0.0",
 ]
+tester = [
+  "nicegui>=2.0.0",
+]
+gbp = [
+  "playwright>=1.40.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+  "ignore::DeprecationWarning:anthropic.*",
+]

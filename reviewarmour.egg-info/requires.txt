@@ -1,0 +1,7 @@
+anthropic>=0.40.0
+
+[dev]
+pytest>=7.0.0
+
+[tester]
+nicegui>=2.0.0
