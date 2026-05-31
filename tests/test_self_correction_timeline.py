@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from reviewarmour.prompt_templates import APPROVED_TIMELINE_PARAGRAPHS
+from reviewarmour.prompt_templates import (
+    APPROVED_PAY_ANCHOR,
+    APPROVED_SUCCESS_PERCENTAGE_ASKED,
+    APPROVED_TIMELINE_PARAGRAPHS,
+)
 from reviewarmour.self_correction import (
     SelfCorrectionVerdict,
+    _enforce_em_dash_verdict,
     _sanitize_timeline_verdict,
     approved_timeline_paragraph_for_review,
+    draft_has_forbidden_em_dash,
     lead_demands_hard_calendar_date,
 )
 
@@ -66,6 +72,29 @@ def test_sanitize_removes_only_timeline_among_other_failures() -> None:
     )
     assert out.verdict == "fix"
     assert out.failed_checks == ["copy_rules: email body exceeds word limit"]
+
+
+def test_draft_has_forbidden_em_dash_allows_verbatim_blocks() -> None:
+    body = f"Hi Sam.\n\n{APPROVED_PAY_ANCHOR}\n\nFooter"
+    assert not draft_has_forbidden_em_dash(body)
+    body2 = f"{APPROVED_SUCCESS_PERCENTAGE_ASKED}\n\nThanks."
+    assert not draft_has_forbidden_em_dash(body2)
+
+
+def test_draft_has_forbidden_em_dash_flags_generated_prose() -> None:
+    assert draft_has_forbidden_em_dash("Hi Sam — we can help with that review.")
+
+
+def test_enforce_em_dash_overrides_llm_pass() -> None:
+    v = SelfCorrectionVerdict(
+        verdict="pass",
+        failed_checks=[],
+        suggested_fixes=[],
+        escalation_reason=None,
+    )
+    out = _enforce_em_dash_verdict(v, draft_body="Hi Sam — quick follow up.")
+    assert out.verdict == "fix"
+    assert any("em dash" in f.lower() for f in out.failed_checks)
 
 
 def test_sanitize_accepts_hard_guarantee_paragraph_when_framing_is_hard_date() -> None:

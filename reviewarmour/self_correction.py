@@ -16,6 +16,7 @@ from typing import Any, Optional, Protocol
 
 from reviewarmour.errors import ConfigError, LLMResponseError, LLMTransportError
 from reviewarmour.prompt_templates import (
+    APPROVED_COPY_ALLOWING_EMDASH,
     APPROVED_TIMELINE_PARAGRAPHS,
     SELF_CORRECTION_SYSTEM,
 )
@@ -45,6 +46,8 @@ _HARD_CALENDAR_DATE_DEMAND_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+_EMDASH_RE = re.compile(r"[\u2014\u2013]")
 
 
 def _latest_lead_message_text(transcript: list[dict[str, Any]]) -> str:
@@ -141,6 +144,50 @@ class SelfCorrectionVerdict:
 
 def _collapse_whitespace(body: str) -> str:
     return re.sub(r"\s+", " ", (body or "").strip())
+
+
+def draft_has_forbidden_em_dash(
+    draft_body: str,
+    *,
+    allowed_fragments: tuple[str, ...] = APPROVED_COPY_ALLOWING_EMDASH,
+) -> bool:
+    """True when the draft contains em/en dashes outside approved verbatim blocks."""
+    body = draft_body or ""
+    if not _EMDASH_RE.search(body):
+        return False
+    stripped = body
+    for fragment in allowed_fragments:
+        stripped = stripped.replace(fragment, "")
+    return bool(_EMDASH_RE.search(stripped))
+
+
+def _enforce_em_dash_verdict(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+) -> SelfCorrectionVerdict:
+    """Deterministic copy_rules gate: fail drafts with forbidden em dashes."""
+    if not draft_has_forbidden_em_dash(draft_body):
+        return verdict
+
+    reason = "copy_rules: em dash present"
+    failed = list(verdict.failed_checks)
+    if not any("em dash" in f.lower() for f in failed):
+        failed.append(reason)
+
+    fixes = list(verdict.suggested_fixes)
+    if not fixes:
+        fixes = ["Replace em dashes with a comma or hyphen"]
+
+    if verdict.verdict == "escalate":
+        return verdict
+
+    return SelfCorrectionVerdict(
+        verdict="fix",
+        failed_checks=failed,
+        suggested_fixes=fixes,
+        escalation_reason=verdict.escalation_reason,
+    )
 
 
 def _sanitize_timeline_verdict(
@@ -311,11 +358,12 @@ class SelfCorrectionModule:
             max_tokens=self._runtime.review_max_tokens,
         )
         verdict = SelfCorrectionVerdict.from_dict(data)
-        return _sanitize_timeline_verdict(
+        verdict = _sanitize_timeline_verdict(
             verdict,
             draft_body=draft_body,
             approved_timeline_paragraph=approved_para,
         )
+        return _enforce_em_dash_verdict(verdict, draft_body=draft_body)
 
 
 def make_anthropic_client(

@@ -23,7 +23,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal, Optional
 
-from reviewarmour.commercial import CommercialEngine, CommercialResult
+from reviewarmour.commercial import (
+    CommercialEngine,
+    CommercialResult,
+    record_negotiation_pushback,
+)
 from reviewarmour.errors import ConfigError, LLMResponseError
 from reviewarmour.models import (
     Channel,
@@ -979,15 +983,25 @@ class OutboundPipeline:
             effective_quote = effective_quote_context(quoted_previously, transcript)
 
             accepted = False
-            if effective_quote and self._use_llm_quote_acceptance:
+            if effective_quote:
                 if inbound_asks_signing_or_agreement_process(inbound_message):
                     logger.info(
                         "Inbound asks signing/agreement process; skipping quote acceptance "
-                        "LLM for lead %s",
+                        "for lead %s",
                         lead.lead_id,
                     )
                     accepted = False
-                else:
+                elif (
+                    acceptance_signal(inbound_message)
+                    and not transcript_suggests_recent_price_quote(transcript)
+                ):
+                    logger.info(
+                        "Acceptance phrase matched inbound but latest assistant turn "
+                        "has no USD/review quote; ignoring quote acceptance for lead %s",
+                        lead.lead_id,
+                    )
+                    accepted = False
+                elif self._use_llm_quote_acceptance:
                     try:
                         accepted = self._conversation.detect_quote_acceptance_llm(
                             inbound_message, transcript
@@ -998,30 +1012,8 @@ class OutboundPipeline:
                             lead.lead_id,
                             e,
                         )
-            elif effective_quote:
-                # No LLM (tests / degraded mode): phrase-based acceptance only, with
-                # guard so "go ahead" after a non-quote assistant turn is ignored.
-                if inbound_asks_signing_or_agreement_process(inbound_message):
-                    logger.info(
-                        "Inbound asks signing/agreement process; skipping deterministic "
-                        "acceptance for lead %s",
-                        lead.lead_id,
-                    )
-                    accepted = False
                 else:
-                    det_accept = acceptance_signal(inbound_message)
-                    if (
-                        det_accept
-                        and not transcript_suggests_recent_price_quote(transcript)
-                    ):
-                        logger.info(
-                            "Acceptance phrase matched inbound but latest assistant turn "
-                            "has no USD/review quote; ignoring deterministic acceptance "
-                            "for lead %s",
-                            lead.lead_id,
-                        )
-                        det_accept = False
-                    accepted = det_accept
+                    accepted = acceptance_signal(inbound_message)
 
             if effective_quote and accepted:
                 return self._handle_acceptance(lead, transcript, channel, logs, now)
@@ -1105,12 +1097,20 @@ class OutboundPipeline:
                     },
                 )
             if pushback and lead.negotiation_step < 2:
-                lead.negotiation_step = min(lead.negotiation_step + 1, 2)
-                logger.info(
-                    "Negotiation pushback: bumped negotiation_step to %s for lead %s",
-                    lead.negotiation_step,
-                    lead.lead_id,
-                )
+                if record_negotiation_pushback(
+                    lead, inbound_message, now=now, max_step=2
+                ):
+                    logger.info(
+                        "Negotiation pushback: bumped negotiation_step to %s for lead %s",
+                        lead.negotiation_step,
+                        lead.lead_id,
+                    )
+                else:
+                    logger.info(
+                        "Negotiation pushback already recorded for lead %s (step=%s)",
+                        lead.lead_id,
+                        lead.negotiation_step,
+                    )
 
         # 2. Kill switch: ai_quote_allowed=false on a pricing turn always escalates here.
         if effective_wants_price and not lead.ai_quote_allowed:

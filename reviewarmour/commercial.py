@@ -229,7 +229,10 @@ class CommercialResult:
 class CommercialEngine:
     """
     Deterministic pricing and negotiation state machine.
-    No LLM. Caller merges negotiation_step / triggers back into LeadRecord between turns.
+    No LLM. ``negotiation_step`` is advanced by :func:`record_negotiation_pushback`
+    inside :class:`reviewarmour.conversation.OutboundPipeline` on pushback turns;
+    CRM should persist ``state_updates`` only — not call :func:`apply_pushback` on
+    the same inbound in the same turn.
     """
 
     def evaluate_pricing(
@@ -392,8 +395,21 @@ class CommercialEngine:
         )
 
 
+def pushback_already_recorded(lead: LeadRecord, trigger_message: str) -> bool:
+    """True when *trigger_message* was already logged as the latest pushback."""
+    if not lead.negotiation_triggers:
+        return False
+    last = lead.negotiation_triggers[-1]
+    return last.lead_message_exact.strip() == (trigger_message or "").strip()
+
+
 def apply_pushback(lead: LeadRecord, trigger_message: str, *, now: Optional[datetime] = None) -> LeadRecord:
-    """Increment negotiation step and append the lead's exact trigger message to the log."""
+    """Return a new lead with negotiation step +1 and the trigger appended to the log.
+
+    Prefer :func:`record_negotiation_pushback` from the outbound pipeline. Do not call
+    this on the same inbound turn as :class:`reviewarmour.conversation.OutboundPipeline`
+    unless you skip pipeline pushback recording (legacy / manual replay only).
+    """
     now = now or datetime.now(timezone.utc)
     new_step = lead.negotiation_step + 1
     entry = NegotiationTriggerLogEntry(
@@ -406,3 +422,24 @@ def apply_pushback(lead: LeadRecord, trigger_message: str, *, now: Optional[date
         negotiation_step=new_step,
         negotiation_triggers=[*lead.negotiation_triggers, entry],
     )
+
+
+def record_negotiation_pushback(
+    lead: LeadRecord,
+    trigger_message: str,
+    *,
+    now: Optional[datetime] = None,
+    max_step: int = 2,
+) -> bool:
+    """Record one pushback on *lead* in place. Returns True if the step was incremented.
+
+    Idempotent when CRM already called :func:`apply_pushback` with the same message.
+    """
+    if pushback_already_recorded(lead, trigger_message):
+        return False
+    if lead.negotiation_step >= max_step:
+        return False
+    updated = apply_pushback(lead, trigger_message, now=now)
+    lead.negotiation_step = min(updated.negotiation_step, max_step)
+    lead.negotiation_triggers = updated.negotiation_triggers
+    return True

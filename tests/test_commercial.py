@@ -4,7 +4,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from reviewarmour.commercial import CommercialEngine, apply_pushback, margin_ok
+from reviewarmour.commercial import (
+    CommercialEngine,
+    apply_pushback,
+    margin_ok,
+    pushback_already_recorded,
+    record_negotiation_pushback,
+)
 from reviewarmour.models import Country, LeadRecord, RecencyProfile
 
 
@@ -81,6 +87,28 @@ def test_pushback_twice_goes_to_neg2() -> None:
     lead = apply_pushback(lead, "second push — still too high")
     r = eng.evaluate_pricing(lead, wants_price=True)
     assert r.authorized_quote_usd_per_review == 400
+
+
+def test_pushback_already_recorded_matches_latest_trigger() -> None:
+    lead = apply_pushback(_base_lead(), "Still too expensive for us")
+    assert pushback_already_recorded(lead, "Still too expensive for us")
+    assert not pushback_already_recorded(lead, "Different pushback text")
+
+
+def test_record_negotiation_pushback_is_idempotent_for_same_message() -> None:
+    lead = apply_pushback(_base_lead(), "first pushback")
+    assert lead.negotiation_step == 1
+    assert record_negotiation_pushback(lead, "first pushback") is False
+    assert lead.negotiation_step == 1
+    assert len(lead.negotiation_triggers) == 1
+
+
+def test_record_negotiation_pushback_advances_on_new_message() -> None:
+    lead = _base_lead(review_count=2, business_category="retail")
+    assert record_negotiation_pushback(lead, "first pushback") is True
+    assert lead.negotiation_step == 1
+    assert record_negotiation_pushback(lead, "second pushback") is True
+    assert lead.negotiation_step == 2
 
 
 def test_below_floor_escalates_no_quote() -> None:

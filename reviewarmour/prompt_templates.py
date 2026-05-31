@@ -17,6 +17,20 @@ APPROVED_TIMELINE_PARAGRAPHS: dict[str, str] = {
     ),
 }
 
+# Verbatim approved blocks that intentionally contain em dashes (self-correction allowlist).
+APPROVED_SUCCESS_PERCENTAGE_ASKED = (
+    "I won't pin it to a specific number in writing — the rate varies by review type. "
+    "The pay-after-removal structure is the real answer: if it doesn't come down, there is no charge."
+)
+APPROVED_PAY_ANCHOR = (
+    "You don't pay until the review is actually down. We send you a screenshot link confirming the removal, "
+    "and your invoice goes out at that point — not before. That's how we structure every job."
+)
+APPROVED_COPY_ALLOWING_EMDASH: tuple[str, ...] = (
+    APPROVED_SUCCESS_PERCENTAGE_ASKED,
+    APPROVED_PAY_ANCHOR,
+)
+
 # -----------------------------------------------------------------------------
 # Conversation drafting (customer-facing model — never include internal cost math)
 # -----------------------------------------------------------------------------
@@ -140,7 +154,7 @@ SUCCESS general:
 "We have a high success rate on reviews that fall within Google's policy violation criteria, which is why we operate pay-after-removal. You only pay once a review is actually down. If we can't remove it, you don't pay for it."
 
 SUCCESS percentage_asked:
-"I won't pin it to a specific number in writing — the rate varies by review type. The pay-after-removal structure is the real answer: if it doesn't come down, there is no charge."
+"{APPROVED_SUCCESS_PERCENTAGE_ASKED}"
 
 WARRANTY will_it_come_back:
 "Once Google's internal team approves the removal, the review does not come back."
@@ -152,7 +166,7 @@ WARRANTY old_review_returns:
 "Once a removal is confirmed by Google's internal team, we've never seen one come back. The 30-day warranty exists for the rare case where a customer returns to leave a fresh review."
 
 PAY-ANCHOR:
-"You don't pay until the review is actually down. We send you a screenshot link confirming the removal, and your invoice goes out at that point — not before. That's how we structure every job."
+"{APPROVED_PAY_ANCHOR}"
 
 REGIONAL FOOTERS:
 US footer:

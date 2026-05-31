@@ -43,10 +43,13 @@ from reviewarmour.conversation import (
     transcript_including_inbound,
     transcript_suggests_recent_price_quote,
 )
+from reviewarmour.commercial import apply_pushback
 from reviewarmour.errors import LLMResponseError
 from reviewarmour.models import Channel, Country, LeadRecord, RecencyProfile
+from reviewarmour.prompt_templates import APPROVED_TIMELINE_PARAGRAPHS
 from reviewarmour.scheduling import defer_sunday_touch_to_monday_8am_est
 from reviewarmour.self_correction import SelfCorrectionVerdict, extract_json_object
+from reviewarmour.commercial import apply_pushback
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +91,38 @@ def _pipeline_no_llm() -> OutboundPipeline:
     return OutboundPipeline(
         conversation=_NeverCalled(),  # type: ignore[arg-type]
         self_correction=_NeverCalled(),  # type: ignore[arg-type]
+        use_llm_commercial_turn=False,
+    )
+
+
+def _pass_verdict() -> SelfCorrectionVerdict:
+    return SelfCorrectionVerdict(
+        verdict="pass",
+        failed_checks=[],
+        suggested_fixes=[],
+        escalation_reason=None,
+    )
+
+
+def _pipeline_for_send() -> OutboundPipeline:
+    class _SC:
+        def review(self, **_kw: object) -> SelfCorrectionVerdict:
+            return _pass_verdict()
+
+    class _Conv:
+        def draft(self, **_kw: object) -> OutboundDraft:
+            return OutboundDraft(
+                action="send",
+                channel=Channel.EMAIL,
+                subject="Re: pricing",
+                body="The updated rate is $425 USD per review.",
+            )
+
+    return OutboundPipeline(
+        conversation=_Conv(),  # type: ignore[arg-type]
+        self_correction=_SC(),
+        use_llm_quote_acceptance=False,
+        use_llm_commercial_turn=False,
     )
 
 
@@ -255,6 +290,98 @@ def test_pipeline_negotiation_pushback_at_step_2_escalates_no_llm() -> None:
     assert res.outcome == "escalate"
     assert res.draft and res.draft.reason == "negotiation_past_final_step"
     assert res.state_updates.get("ai_conversation_state") == "escalated_to_human"
+
+
+def test_pipeline_records_single_pushback_step() -> None:
+    pipe = _pipeline_for_send()
+    lead = _us_lead(negotiation_step=0)
+    t = [{"role": "assistant", "body": "The rate is $450 USD per review."}]
+    res = pipe.run(
+        lead=lead,
+        transcript=t,
+        channel=Channel.EMAIL,
+        sequence_stage="main",
+        inbound_message="That is still too expensive for us",
+        wants_price=True,
+        quoted_previously=True,
+    )
+    assert res.outcome == "send"
+    assert lead.negotiation_step == 1
+    assert len(lead.negotiation_triggers) == 1
+    assert res.state_updates.get("negotiation_step") == 1
+    assert res.commercial is not None
+    assert res.commercial.authorized_quote_usd_per_review == 425
+
+
+def test_pipeline_does_not_double_bump_crm_pre_applied_pushback() -> None:
+    pipe = _pipeline_for_send()
+    msg = "That is still too expensive for us"
+    lead = apply_pushback(_us_lead(negotiation_step=0), msg)
+    assert lead.negotiation_step == 1
+    t = [{"role": "assistant", "body": "The rate is $450 USD per review."}]
+    res = pipe.run(
+        lead=lead,
+        transcript=t,
+        channel=Channel.EMAIL,
+        sequence_stage="main",
+        inbound_message=msg,
+        wants_price=True,
+        quoted_previously=True,
+    )
+    assert res.outcome == "send"
+    assert lead.negotiation_step == 1
+    assert len(lead.negotiation_triggers) == 1
+    assert res.state_updates.get("negotiation_step") == 1
+    assert res.commercial is not None
+    assert res.commercial.authorized_quote_usd_per_review == 425
+
+
+def test_bare_ok_after_non_quote_assistant_blocks_acceptance_llm() -> None:
+    """E3: generic Ok after timeline text must not invoke acceptance classifier."""
+    verdict = SelfCorrectionVerdict(
+        verdict="pass",
+        failed_checks=[],
+        suggested_fixes=[],
+        escalation_reason=None,
+    )
+
+    class _SC:
+        def review(self, **_kw: object) -> SelfCorrectionVerdict:
+            return verdict
+
+    class _Conv:
+        def detect_quote_acceptance_llm(self, *_a: object, **_k: object) -> bool:
+            raise AssertionError("acceptance LLM must not run when guard blocks bare Ok")
+
+        def draft(self, **_kw: object) -> OutboundDraft:
+            return OutboundDraft(
+                action="send",
+                channel=Channel.EMAIL,
+                subject="Re: timing",
+                body="Following up on timing.",
+            )
+
+    pipe = OutboundPipeline(
+        conversation=_Conv(),  # type: ignore[arg-type]
+        self_correction=_SC(),
+        use_llm_quote_acceptance=True,
+        use_llm_commercial_turn=False,
+    )
+    hg = APPROVED_TIMELINE_PARAGRAPHS["under_1_month"]
+    res = pipe.run(
+        lead=_us_lead(),
+        transcript=[
+            {"role": "assistant", "body": "The rate is $450 USD per review."},
+            {"role": "user", "body": "how long will it take?"},
+            {"role": "assistant", "body": hg},
+        ],
+        channel=Channel.EMAIL,
+        sequence_stage="main",
+        inbound_message="Ok",
+        quoted_previously=True,
+    )
+    assert res.state_updates.get("ai_conversation_state") != "quote_accepted"
+    assert res.handoff_payload is None
 
 
 # ---------------------------------------------------------------------------
