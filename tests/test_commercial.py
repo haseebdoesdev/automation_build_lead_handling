@@ -111,6 +111,18 @@ def test_record_negotiation_pushback_advances_on_new_message() -> None:
     assert lead.negotiation_step == 2
 
 
+def test_record_negotiation_pushback_does_not_rebump_externally_advanced_step() -> None:
+    """CRM may set negotiation_step without triggers; pipeline must not bump again."""
+    lead = _base_lead(review_count=2, business_category="retail", negotiation_step=1)
+    assert len(lead.negotiation_triggers) == 0
+    assert record_negotiation_pushback(lead, "Can you do it for less?") is False
+    assert lead.negotiation_step == 1
+    assert len(lead.negotiation_triggers) == 1
+    assert lead.negotiation_triggers[0].step_after == 1
+    r = CommercialEngine().evaluate_pricing(lead, wants_price=True)
+    assert r.authorized_quote_usd_per_review == 425
+
+
 def test_below_floor_escalates_no_quote() -> None:
     eng = CommercialEngine()
     lead = _base_lead()

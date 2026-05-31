@@ -433,12 +433,26 @@ def record_negotiation_pushback(
 ) -> bool:
     """Record one pushback on *lead* in place. Returns True if the step was incremented.
 
-    Idempotent when CRM already called :func:`apply_pushback` with the same message.
+    Idempotent when:
+    - CRM already called :func:`apply_pushback` with the same message, or
+    - ``negotiation_step`` was advanced externally (step > len(negotiation_triggers)).
+      In that case the trigger is logged without bumping again.
     """
     if pushback_already_recorded(lead, trigger_message):
         return False
     if lead.negotiation_step >= max_step:
         return False
+
+    now = now or datetime.now(timezone.utc)
+    if lead.negotiation_step > len(lead.negotiation_triggers):
+        entry = NegotiationTriggerLogEntry(
+            step_after=lead.negotiation_step,
+            lead_message_exact=trigger_message,
+            at=now,
+        )
+        lead.negotiation_triggers = [*lead.negotiation_triggers, entry]
+        return False
+
     updated = apply_pushback(lead, trigger_message, now=now)
     lead.negotiation_step = min(updated.negotiation_step, max_step)
     lead.negotiation_triggers = updated.negotiation_triggers

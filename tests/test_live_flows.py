@@ -1168,9 +1168,10 @@ class TestD2_ExclamationMark:
     def test_exclamation_caught(self, self_correction_module):
         verdict = _sc_review(
             self_correction_module,
-            "Great news! We can remove your reviews.",
+            "Hi Test, reply here when you would like to discuss your Google review options!",
         )
         assert verdict.verdict == "fix", f"Exclamation should trigger fix, got {verdict.verdict}"
+        assert any("copy_rules" in c.lower() for c in verdict.failed_checks)
 
 
 class TestD3_FlaggedInsteadOfIdentified:

@@ -336,6 +336,32 @@ def test_pipeline_does_not_double_bump_crm_pre_applied_pushback() -> None:
     assert res.commercial.authorized_quote_usd_per_review == 425
 
 
+def test_pipeline_does_not_double_bump_externally_set_step_without_triggers() -> None:
+    """B4.2: negotiation_step=1 without apply_pushback must stay at step 1 pricing."""
+    pipe = _pipeline_for_send()
+    msg = "Can you do it for less?"
+    lead = _us_lead(negotiation_step=1)
+    assert len(lead.negotiation_triggers) == 0
+    t = [
+        {"role": "assistant", "body": "The rate is $450 USD per review."},
+        {"role": "user", "body": msg},
+    ]
+    res = pipe.run(
+        lead=lead,
+        transcript=t,
+        channel=Channel.EMAIL,
+        sequence_stage="main",
+        inbound_message=msg,
+        wants_price=True,
+        quoted_previously=True,
+    )
+    assert res.outcome == "send"
+    assert lead.negotiation_step == 1
+    assert len(lead.negotiation_triggers) == 1
+    assert res.commercial is not None
+    assert res.commercial.authorized_quote_usd_per_review == 425
+
+
 def test_bare_ok_after_non_quote_assistant_blocks_acceptance_llm() -> None:
     """E3: generic Ok after timeline text must not invoke acceptance classifier."""
     verdict = SelfCorrectionVerdict(
