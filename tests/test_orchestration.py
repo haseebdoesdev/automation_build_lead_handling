@@ -274,17 +274,37 @@ def test_pipeline_below_floor_escalates_no_llm() -> None:
     assert res.state_updates.get("ai_conversation_state") == "escalated_to_human"
 
 
-def test_pipeline_negotiation_pushback_at_step_2_escalates_no_llm() -> None:
-    pipe = _pipeline_no_llm()
+def test_pipeline_negotiation_pushback_at_step_2_quotes_neg2_no_llm() -> None:
+    """Step 2 is the last quoting step; pushback should run commercial, not escalate."""
+    pipe = _pipeline_for_send()
     lead = _us_lead(negotiation_step=2)
-    t = [{"role": "assistant", "body": "Best I can do is $325 USD per review."}]
+    t = [{"role": "assistant", "body": "Best I can do is $425 USD per review."}]
     res = pipe.run(
         lead=lead,
         transcript=t,
         channel=Channel.EMAIL,
         sequence_stage="main",
         inbound_message="can we go any lower",
-        wants_price=False,
+        wants_price=True,
+        quoted_previously=True,
+    )
+    assert res.outcome == "send"
+    assert res.commercial is not None
+    assert res.commercial.authorized_quote_usd_per_review == 400
+    assert lead.negotiation_step == 2
+
+
+def test_pipeline_negotiation_pushback_at_step_3_escalates_no_llm() -> None:
+    pipe = _pipeline_no_llm()
+    lead = _us_lead(negotiation_step=3)
+    t = [{"role": "assistant", "body": "Best I can do is $400 USD per review."}]
+    res = pipe.run(
+        lead=lead,
+        transcript=t,
+        channel=Channel.EMAIL,
+        sequence_stage="main",
+        inbound_message="can we go any lower",
+        wants_price=True,
         quoted_previously=True,
     )
     assert res.outcome == "escalate"

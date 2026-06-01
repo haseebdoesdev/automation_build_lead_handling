@@ -1080,9 +1080,9 @@ class OutboundPipeline:
             pushback = llm_turn.negotiation_pushback or is_negotiation_pushback(
                 inbound_message
             )
-            if pushback and lead.negotiation_step >= 2:
+            if pushback and lead.negotiation_step > 2:
                 logger.info(
-                    "Negotiation pushback at final step (step>=2); escalating for lead %s",
+                    "Negotiation pushback past final step (step>2); escalating for lead %s",
                     lead.lead_id,
                 )
                 return PipelineResult(

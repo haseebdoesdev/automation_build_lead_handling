@@ -1,278 +1,2780 @@
 # ReviewArmour Live Integration Test Results
 
-**Date:** 2026-05-31
-**Test File:** `tests/test_live_flows.py`
-**Total Tests:** 82
-**Passed:** 78
-**Failed:** 3
-**XFailed (Expected Failure):** 1
-**Runtime:** 490.99s (8 min 10 sec)
-**Environment:** Live Anthropic API (claude-sonnet-4-6), Windows 11, Python 3.11.4
+**Generated:** 2026-05-31 17:17:43 UTC
+**Test file:** `tests/test_live_flows.py`
+**Total:** 93 | **Passed:** 38 | **Failed:** 55 | **Skipped:** 0 | **XFailed:** 0
+**Runtime:** 124.8s (2.1 min)
+
+> **API billing blocked:** 55 failure(s) were caused by exhausted Anthropic API credits (`credit balance is too low`), not by application logic. Likely real failures this run: **0**.
 
 ---
 
 ## Summary
 
-| Section | Tests | Passed | Failed | XFail | Notes |
-|---------|-------|--------|--------|-------|-------|
-| A - Routing & Conversation | 21 | 21 | 0 | 0 | All pass |
-| B - Commercial Reasoning | 15 | 14 | 1 | 0 | B4 pipeline price mismatch |
-| C - Timeline/Methodology/Success | 10 | 10 | 0 | 0 | All pass |
-| D - Self-Correction Layer | 8 | 6 | 2 | 0 | D1 em dash missed, D2 exclamation over-escalated |
-| E - Quote-to-Invoice Handoff | 7 | 6 | 0 | 1 | E3 "Ok" acceptance — LLM too liberal |
-| F - Stall-Escalation | 7 | 7 | 0 | 0 | All pass |
-| G - Post-Call Follow-Up | 1 | 1 | 0 | 0 | All pass |
-| H - Review Request | 6 | 6 | 0 | 0 | All pass |
-| Integration (dispatch/Slack/SMS) | 3 | 3 | 0 | 0 | All pass |
-| **TOTAL** | **82** | **78** | **3** | **1** | |
+| Section | Tests | Passed | Failed |
+|---------|-------|--------|--------|
+| A | 23 | 17 | 6 |
+| B | 19 | 10 | 9 |
+| C | 10 | 0 | 10 |
+| D | 8 | 1 | 7 |
+| E | 7 | 0 | 7 |
+| F | 8 | 7 | 1 |
+| G | 1 | 1 | 0 |
+| H | 6 | 1 | 5 |
+| I | 11 | 1 | 10 |
 
 ---
 
-## Detailed Results
+## Per-Test Results
 
-### A — Routing & Conversation Flow Tests
+### `test_ca_first_touch_has_toronto_footer`
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| A1.1 | First touch produces send with email draft | PASS | Pipeline returns outcome=send with email draft |
-| A1.2 | First touch email references business name | PASS | "A1 Plumbing" found in draft body |
-| A1.3 | First touch email has US/Miami footer | PASS | Brickell/Miami footer present, no Toronto |
-| A1.4 | First touch SMS under 320 chars | PASS | SMS body within character limit |
-| A4.1 | After-hours AI first touch email | PASS | Correct first-touch with business reference and footer |
-| A4.2 | After-hours AI first touch SMS | PASS | SMS draft produced within limits |
-| A5 | AI engages with lead reply | PASS | AI produces substantive reply to "2 bad reviews" |
-| A6.1 | Defamation/lawyer escalates | PASS | Immediate escalation with legal_escalation reason |
-| A6.2 | Escalation produces no AI message | PASS | Draft action = escalate |
-| A7.1 | Follow-up schedule has 3 touches | PASS | Exactly 3 follow-ups, no 4th |
-| A7.2 | Follow-up timings correct | PASS | T+30m, T+60m verified |
-| A7.3 | Follow-up 3 at T+24h (non-Sunday) | PASS | |
-| A8.1 | Morning brief contains lead data | PASS | All lead fields present in brief |
-| A8.2 | Morning queue priority sorting | PASS | escalated > stalled > queued > new |
-| A9.1 | Brief uses "not stated" for unknowns | PASS | GBP, Source, Urgency, Sentiment all "not stated" |
-| A9.2 | Brief has 3 opening lines | PASS | OPENING LINES section with 1/2/3 present |
-| A10.1 | CA first touch has Toronto footer | PASS | Toronto/Bloor in body, no Miami |
-| A10.2 | US first touch has Miami footer | PASS | Miami/Brickell in body, no Toronto |
-| A11.1 | EST uses America/New_York | PASS | Timezone string verified |
-| A11.2 | Sunday deferral respects EST | PASS | Defers to Monday 08:00 in ET |
-| A13 | Post-escalation message handled | PASS | Pipeline does not crash on post-escalation inbound |
+- **Class:** `TestA10_RegionalFooter`
+- **Intent:** A10: CA gets Toronto footer, US gets Miami footer, no cross-contamination.
+- **Verdict:** **FAILED**
+- **Duration:** 0.44s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2TwAoi1a5cGAa8AmCJ'}`
 
-### A — External Platform Decision Tests (GHL/Twilio/Slack not connected)
+#### Output produced
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| A2 | Pipeline produces send for dispatch | PASS | Correct decision produced for salesman routing |
-| A12 | SMS failure fallback — email draft valid | PASS | Email draft produced regardless of phone validity |
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### B — Commercial Reasoning Layer Tests
+### `test_us_first_touch_has_miami_footer`
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| B1.1 | US dental tier US-2 at $500 | PASS | Tier, price, neg steps, floor all correct |
-| B1.2 | Pipeline quotes $500 for dental | PASS | AI draft contains $500 |
-| B2 | US plumber 4 reviews → US-3 $425 | PASS | Tier, steps, floor verified |
-| B3.1 | CA restaurant → CA-1 $375 | PASS | Correct tier and USD pricing |
-| B3.2 | CA pipeline quotes USD not CAD | PASS | No "CAD" in draft body |
-| B4.1 | First pushback US-1 → $425 | PASS | Commercial engine returns correct step 1 price |
-| B4.2 | Pipeline pushback step 1 | **FAIL** | See failure details below |
-| B5 | Second pushback US-1 → $400 | PASS | |
-| B6.1 | Below floor escalates | PASS | Step 3 escalates, no quote |
-| B6.2 | Pipeline below floor escalates | PASS | outcome=escalate with below-floor flag |
-| B7 | Self-correction catches invented $387 | PASS | Verdict=fix with pricing check failure |
-| B8.1 | Commercial engine requests GBP first | PASS | request_gbp_first=True, no quote |
-| B8.2 | Pipeline asks for GBP link | PASS | No price quoted, GBP link requested |
-| B9.1 | Hidden cost $80 caught | PASS | |
-| B9.2 | Hidden cost $50 caught | PASS | |
-| B9.3 | Hidden 20% margin caught | PASS | |
-| B9.4 | Hidden cost $214 caught | PASS | |
-| B10.1 | Margin fails at $250 over-1-month | PASS | margin_ok returns False |
-| B10.2 | CA-6 step 2 margin fail escalates | PASS | Escalation with "Margin" reason |
+- **Class:** `TestA10_RegionalFooter`
+- **Intent:** A10: CA gets Toronto footer, US gets Miami footer, no cross-contamination.
+- **Verdict:** **FAILED**
+- **Duration:** 0.50s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Ty3uuQ6VuFmv6d7pm'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### C — Timeline / Methodology / Success-Rate Framing Tests
+### `test_est_scheduling_uses_america_new_york`
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| C1 | "How long?" under-1-month timeline | PASS | "two to four weeks" in response |
-| C2 | "How long?" mixed/over timeline | PASS | "up to a month" in response |
-| C3 | Success rate — no percentage | PASS | pay-after-removal referenced, no invented % |
-| C4 | SC catches 90% in draft | PASS | Verdict=escalate (success_rate violation) |
-| C5 | Methodology response | PASS | "policy violation" / "reporting channels" in body |
-| C6 | Operational detail deflects to call | PASS | "call" / "specialist" in response |
-| C7 | Warranty response | PASS | "does not come back" / "Google's internal team" |
-| C8.1 | "48 hours guarantee" caught | PASS | |
-| C8.2 | "Direct contact at Google" caught | PASS | |
-| C8.3 | "19 out of 20" caught | PASS | |
+- **Class:** `TestA11_DSTTransition`
+- **Intent:** A11: Business hours use America/New_York (auto DST).
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
 
----
+#### Output produced
 
-### D — Self-Correction Layer Tests
+_No pipeline/SC/commercial output captured._
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| D1 | Em dash in draft → fix | **FAIL** | See failure details below |
-| D2 | Exclamation mark in draft → fix | **FAIL** | See failure details below |
-| D3 | "flagged" → fix | PASS | |
-| D4 | Wrong business name → fix | PASS | factual_accuracy check fired |
-| D5 | Hard timeline commitment → fix | PASS | |
-| D6 | Three failed redrafts → human_queue | PASS | 3 attempts, human_queue_payload with full history |
-| D7 | Wrong regional footer → fix | PASS | regional_footer check fired |
-| D8 | Clean draft passes immediately | PASS | verdict=pass on first attempt |
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### E — Quote-to-Invoice Handoff Tests
+### `test_sunday_deferral_respects_est_not_utc`
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| E1.1 | "Let's do it" → quote_accepted + handoff | PASS | State set, handoff_payload correct |
-| E1.2 | Confirmation body rules | PASS | No $, has DocuSign, no em dash, no ! |
-| E2 | "Send the invoice" acceptance | PASS | Same flow as E1 |
-| E3 | Ambiguous "Ok" — LLM should not accept | **XFAIL** | See details below |
-| E4 | Slack failure — state set before Slack | PASS | quote_accepted set independently |
-| E5.1 | Confirmation US footer | PASS | Miami/Brickell present |
-| E5.2 | Confirmation CA footer | PASS | Toronto/Bloor present |
+- **Class:** `TestA11_DSTTransition`
+- **Intent:** A11: Business hours use America/New_York (auto DST).
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
 
----
+#### Output produced
 
-### F — Stall-Escalation Tests
+_No pipeline/SC/commercial output captured._
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| F1.1 | No stall at 5h59 | PASS | |
-| F1.2 | Stall fires at 6h | PASS | |
-| F1.3 | Stall payload has salesman_page | PASS | All fields present |
-| F2 | Backup at 12h → backup_jayden | PASS | stalled_post_quote_backup state |
-| F3 | Lead replies during stall — pipeline resumes | PASS | |
-| F4.1 | Soft quote stall at 2h | PASS | |
-| F4.2 | Hard quote no stall at 2h | PASS | |
-| F5 | Multiple stalls — independent context | PASS | Each lead's data isolated |
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### G — Post-Call Follow-Up Tests
+### `test_pipeline_produces_email_draft_regardless`
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| G5 | Sunday touch defers to Monday 08:00 EST | PASS | queued_for_morning status set |
+- **Class:** `TestA12_SMSDeliveryFailureFallback`
+- **Intent:** A12: SMS delivery failure — pipeline still produces a valid draft.
+    Twilio not connected — verifying draft is channel-valid.
+- **Verdict:** **FAILED**
+- **Duration:** 1.01s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WgHgpXidtc7RMyXNJ'}`
 
----
+#### Output produced
 
-### H — Customer Review Request Tests
+_No pipeline/SC/commercial output captured._
 
-| Test ID | Test Name | Result | Notes |
-|---------|-----------|--------|-------|
-| H2 | Touch 1 SMS — name, summary, link, <200 chars | PASS | All constraints met |
-| H3 | Touch 2 email — under 80 words | PASS | |
-| H4 | Touch 3 SMS — under 160 chars | PASS | |
-| H6 | Sunday review request defers | PASS | |
-| H7 | Star rating in draft caught | PASS | |
-| H8 | Incentive in draft caught | PASS | |
+#### Verdict on output
 
----
+Test assertions **failed** against the captured output(s) above.
 
-## Failure Details
-
-### FAIL: B4.2 — Pipeline pushback step 1 quotes $400 instead of $425
-
-**What happened:**
-The test set `negotiation_step=1` on the lead and sent `wants_price=True` with pushback inbound. The commercial engine correctly computes `authorized_quote_usd_per_review=425` at step 1 for a US-1 lead. However, the AI drafted a message quoting **$400** instead of $425.
-
-**Draft body produced:**
-> "Best I can do for Mike Auto is $400 USD per review, and you only pay after each review is confirmed down."
-
-**Root cause:**
-The conversation drafter (Claude) is interpreting the pushback context ("Can you do it for less?") and the transcript showing a prior $450 quote as a reason to drop further than authorized. The commercial engine authorized $425, but the LLM went to $400 (the step 2 price). The self-correction layer also had a JSON repair retry, suggesting the SC response was initially malformed.
-
-Additionally, the pipeline's internal negotiation-step bump logic may be double-stepping: the test sets `negotiation_step=1` on the lead, but the pipeline's `is_negotiation_pushback` detection bumps it again to step 2 when it sees the pushback phrase in the inbound message, resulting in the commercial engine producing $400 (step 2) instead of $425 (step 1).
-
-**Possible fix:**
-When the caller already sets `negotiation_step=1` on the lead record AND passes `wants_price=True`, the pipeline should not re-increment the step on the same turn. The test should either:
-- Set `negotiation_step=0` and let the pipeline bump it to 1 on pushback detection, OR
-- The pipeline should guard against double-bumping when the step was already advanced externally.
-
-The underlying issue is a coordination gap between CRM-side step management and the pipeline's internal step detection. The pipeline should not bump `negotiation_step` if the caller already did so.
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### FAIL: D1 — Em dash not caught by self-correction
+### `test_post_escalation_message_does_not_resume_ai`
 
-**What happened:**
-Draft containing `"We can help — our team is ready to review your profile."` was reviewed by the self-correction module. Expected verdict: `fix`. Actual verdict: **`pass`**.
+- **Class:** `TestA13_AIStopsAfterEscalation`
+- **Intent:** A13: After escalation, further lead messages should not produce AI send.
+- **Verdict:** **FAILED**
+- **Duration:** 0.84s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2U3ATmPs37frwA7ems'}`
 
-**Root cause:**
-The self-correction LLM (Claude) failed to detect the em dash (`—`) in the draft body. The system prompt explicitly instructs it to flag em dashes under `copy_rules`, but the model missed it on this run. This is a non-deterministic LLM behavior issue — the same draft may be caught on a different run.
+#### Output produced
 
-**Possible fix:**
-- Add a deterministic pre-check in `SelfCorrectionModule.review()` that scans for em dashes (`—` and `–`) before calling the LLM. If found, automatically inject a `copy_rules: em dash present` failure without relying on the LLM to catch it.
-- This is a known weakness of LLM-only validation for character-level rules. A hybrid approach (deterministic regex + LLM review) would be more reliable.
+_No pipeline/SC/commercial output captured._
 
----
+#### Verdict on output
 
-### FAIL: D2 — Exclamation mark verdict is `escalate` instead of `fix`
+Test assertions **failed** against the captured output(s) above.
 
-**What happened:**
-Draft containing `"Great news! We can remove your reviews."` was reviewed. Expected verdict: `fix`. Actual verdict: **`escalate`**.
-
-**Root cause:**
-The self-correction module correctly detected the exclamation mark but also flagged additional issues (likely `scope` — "We can remove your reviews" could be interpreted as guaranteeing removal of specific reviews, which is a scope violation). Scope violations trigger `escalate` per the verdict rules (checks 2, 3, 7 → escalate). The exclamation mark alone would be a `fix`, but combined with the scope issue, the verdict escalated.
-
-**Possible fix:**
-This is technically correct behavior — the draft has multiple violations and the most severe one wins. The test expectation was too narrow. The test should accept `verdict in ("fix", "escalate")` since either is a valid catch of the copy-rules violation. The important thing is the draft is NOT sent, which is confirmed.
+```text
+No API output captured (deterministic assertion only).
+```
 
 ---
 
-### XFAIL: E3 — Ambiguous "Ok" accepted by LLM
+### `test_first_touch_email_has_us_footer`
 
-**What happened:**
-After a quote of $450, the lead replied with just `"Ok"`. The LLM acceptance classifier (`detect_quote_acceptance_llm`) returned `True`, treating this as quote acceptance.
+- **Class:** `TestA1_BusinessHoursFormSubmission`
+- **Intent:** A1: Form submission during business hours produces a first-touch draft.
+- **Verdict:** **PASSED**
+- **Duration:** 6.08s
 
-**Root cause:**
-The acceptance classifier prompt instructs `accept=false` for "generic 'ok' / 'go ahead' right after non-pricing assistant text", but in this case the latest assistant message WAS a pricing message ($450 quote). The LLM interpreted bare "Ok" after a direct price quote as acceptance, which is arguably reasonable but risks false positives.
+#### Output produced
 
-**Possible fix:**
-- Tighten the acceptance classifier prompt to require more explicit commitment language after a quote (not just bare affirmatives).
-- Add a deterministic guard: single-word responses like "ok", "okay" should require LLM disambiguation rather than direct acceptance.
-- Consider requiring at least 2+ words or a clear action phrase for acceptance.
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi Test User,\n\nGot your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nA specialist can walk you through pricing and next steps. Reply here or let me know a good time for a quick call.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "input_draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "email",
+    "draft_action": "send",
+    "draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "draft_body": "Hi Test User,\n\nGot your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nA specialist can walk you through pricing and next steps. Reply here or let me know a good time for a quick call.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi Test User,  Got your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  A specialist can 
+Output 2 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=1
+  draft: Hi Test User,  Got your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  A specialist can walk you through pricing and next steps. Reply here or let me know a good time f…
+  SC attempt 1: verdict='pass'; failed=[]
+```
 
 ---
 
-## Tests Not Directly Testable (External Platform Dependencies)
+### `test_first_touch_email_references_business`
 
-The following test specs reference features that depend on external platforms not yet integrated. These were tested at the **decision layer** — verifying the pipeline produces the correct outcome, state_updates, and handoff payloads that would trigger the external action:
+- **Class:** `TestA1_BusinessHoursFormSubmission`
+- **Intent:** A1: Form submission during business hours produces a first-touch draft.
+- **Verdict:** **PASSED**
+- **Duration:** 8.45s
 
-| Test Spec | What Was Tested | What Requires External Platform |
-|-----------|----------------|--------------------------------|
-| A1 (GHL record creation) | Pipeline produces sendable first-touch draft | GHL API to create lead record |
-| A2/A3 (Salesman dispatch/ack) | Pipeline produces correct send outcome for routing | Twilio SMS dispatch, ack tracking, rotation logic |
-| A12 (SMS delivery failure) | Pipeline produces email draft regardless of phone | Twilio error handling, fallback logic |
-| A14 (Founder removal test) | N/A — requires full 24h simulation with rotation | Salesman rotation, multi-lead orchestration |
-| E4 (Slack delivery failure) | quote_accepted state set before any Slack call | Slack API, retry logic, SMS fallback to Jayden |
-| G1-G4, G6 (Post-call outcomes) | N/A — no call outcome logging module exists yet | Call logging, calendar integration, sequence engine |
-| H1, H5 (Job complete, suppression) | N/A — no CRM job_complete trigger exists yet | GHL webhook, suppression flag in CRM |
+#### Output produced
+
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi Test User,\n\nGot your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nWe have your profile link and can get started quickly. Reply here to go over pricing and next steps, or let me know a good time for a quick call with one of our specialists.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "input_draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "email",
+    "draft_action": "send",
+    "draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "draft_body": "Hi Test User,\n\nGot your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nWe have your profile link and can get started quickly. Reply here to go over pricing and next steps, or let me know a good time for a quick call with one of our specialists.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi Test User,  Got your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  We have your prof
+Output 2 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=1
+  draft: Hi Test User,  Got your profile for A1 Plumbing Co. We remove policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  We have your profile link and can get started quickly. Reply here to go over pricing and next ste…
+  SC attempt 1: verdict='pass'; failed=[]
+```
 
 ---
 
-## Overall Assessment
+### `test_first_touch_produces_send_with_email_draft`
 
-**The core AI layer is solid.** 78 of 82 tests pass, covering:
-- All 12 pricing tiers (US-1 through US-6, CA-1 through CA-6)
-- Negotiation ladder (step 0 → 1 → 2 → escalation)
-- Margin discipline and floor enforcement
-- GBP link gating
-- All hard escalation triggers (legal, regulator, named person, post-payment)
-- Follow-up cadence (T+30m, T+60m, T+24h) with Sunday deferral
-- Morning queue briefs with "not stated" for unknowns
-- Regional footer accuracy (US/CA, no cross-contamination)
-- Quote acceptance flow with handoff payload
-- Stall detection at 6h/2h (hard/soft) with backup at 12h/4h
-- Self-correction: invented prices, hidden costs, percentages, wrong names, wrong footers, hard timelines, star ratings, incentives
-- Customer review request drafting (touch 1/2/3 with character limits)
-- Retry cap (3 attempts → human_queue with full history)
+- **Class:** `TestA1_BusinessHoursFormSubmission`
+- **Intent:** A1: Form submission during business hours produces a first-touch draft.
+- **Verdict:** **PASSED**
+- **Duration:** 16.87s
 
-**Three areas need attention:**
-1. **Negotiation step double-bump** (B4.2) — pipeline + CRM both incrementing the step
-2. **Em dash detection reliability** (D1) — LLM misses character-level copy rules; add deterministic pre-check
-3. **Acceptance classifier sensitivity** (E3) — bare "Ok" after a quote triggers acceptance; needs disambiguation guard
+#### Output produced
+
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi Test User,\n\nGot your profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis — you only pay once a review is actually down, not before.\n\nA specialist can walk you through pricing and next steps. Reply here or let me know a good time for a quick call.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "input_draft_subject": "Review removal for A1 Plumbing Co",
+    "verdict": "fix",
+    "failed_checks": [
+      "copy_rules: em dash present"
+    ],
+    "suggested_fixes": [
+      "Replace em dashes with a comma or hyphen"
+    ],
+    "escalation_reason": null
+  },
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi Test User,\n\nWe have your Google Business Profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis, meaning you only pay once a review is actually down.\n\nWant to go over pricing or get a specialist on a quick call? Just reply here and we can move forward.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "input_draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "email",
+    "draft_action": "send",
+    "draft_subject": "Removing your Google reviews - A1 Plumbing Co",
+    "draft_body": "Hi Test User,\n\nWe have your Google Business Profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis, meaning you only pay once a review is actually down.\n\nWant to go over pricing or get a specialist on a quick call? Just reply here and we can move forward.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash present"
+        ]
+      },
+      {
+        "attempt": 2,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='fix'; failed_checks=['copy_rules: em dash present']
+  input draft: Hi Test User,  Got your profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis — you only pay once a review is actually down, not before.  A spec
+Output 2 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi Test User,  We have your Google Business Profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis, meaning you only pay once a review is actuall
+Output 3 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=2
+  draft: Hi Test User,  We have your Google Business Profile for A1 Plumbing Co. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis, meaning you only pay once a review is actually down.  Want to go over pricing or get a specialist on a quick call? Just reply…
+  SC attempt 1: verdict='fix'; failed=['copy_rules: em dash present']
+  SC attempt 2: verdict='pass'; failed=[]
+```
+
+---
+
+### `test_first_touch_sms_under_320_chars`
+
+- **Class:** `TestA1_BusinessHoursFormSubmission`
+- **Intent:** A1: Form submission during business hours produces a first-touch draft.
+- **Verdict:** **PASSED**
+- **Duration:** 10.78s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews — you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "input_draft_subject": null,
+    "verdict": "fix",
+    "failed_checks": [
+      "copy_rules: em dash present"
+    ],
+    "suggested_fixes": [
+      "Replace em dashes with a comma or hyphen"
+    ],
+    "escalation_reason": null
+  },
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews, and you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "input_draft_subject": null,
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "sms",
+    "draft_action": "send",
+    "draft_subject": null,
+    "draft_body": "Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews, and you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash present"
+        ]
+      },
+      {
+        "attempt": 2,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='fix'; failed_checks=['copy_rules: em dash present']
+  input draft: Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews — you only pay after each one comes down. Want to go over pricing or set up a quick call?
+Output 2 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews, and you only pay after each one comes down. Want to go over pricing or set up a quick call
+Output 3 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=2
+  draft: Hi, this is ReviewArmour. We have your Google profile for A1 Plumbing Co. We remove policy-violating reviews, and you only pay after each one comes down. Want to go over pricing or set up a quick call?
+  SC attempt 1: verdict='fix'; failed=['copy_rules: em dash present']
+  SC attempt 2: verdict='pass'; failed=[]
+```
+
+---
+
+### `test_pipeline_produces_send_outcome_for_dispatch`
+
+- **Class:** `TestA2_SalesmanDispatchDecision`
+- **Intent:** A2/A3: Pipeline produces correct state for salesman dispatch/fallback.
+    External platform not connected — verifying the decision layer only.
+- **Verdict:** **FAILED**
+- **Duration:** 0.89s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WbxUyt16txZfRWaio'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_after_hours_ai_first_touch_email`
+
+- **Class:** `TestA4_AfterHoursFormSubmission`
+- **Intent:** A4: After-hours submission — AI sends first-touch email with correct framing.
+- **Verdict:** **PASSED**
+- **Duration:** 6.33s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi Test User,\n\nGot your profile for A4 Bakery. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nWe have your profile link and will be in touch shortly with pricing. If you want to move faster, reply here or schedule a call with a specialist.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "input_draft_subject": "Removing your Google reviews - A4 Bakery",
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "email",
+    "draft_action": "send",
+    "draft_subject": "Removing your Google reviews - A4 Bakery",
+    "draft_body": "Hi Test User,\n\nGot your profile for A4 Bakery. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.\n\nWe have your profile link and will be in touch shortly with pricing. If you want to move faster, reply here or schedule a call with a specialist.\n\nJayden Faris / ReviewArmour / +1 (786) 464-3783\n1395 Brickell Avenue, Suite 800, Miami, FL 33131",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi Test User,  Got your profile for A4 Bakery. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  We have you
+Output 2 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=1
+  draft: Hi Test User,  Got your profile for A4 Bakery. ReviewArmour removes policy-violating Google reviews on a pay-after-removal basis - you only pay once a review is actually down, not before.  We have your profile link and will be in touch shortly with pricing. If you want to move fa…
+  SC attempt 1: verdict='pass'; failed=[]
+```
+
+---
+
+### `test_after_hours_ai_first_touch_sms`
+
+- **Class:** `TestA4_AfterHoursFormSubmission`
+- **Intent:** A4: After-hours submission — AI sends first-touch email with correct framing.
+- **Verdict:** **PASSED**
+- **Duration:** 17.72s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews — you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "input_draft_subject": null,
+    "verdict": "fix",
+    "failed_checks": [
+      "copy_rules: em dash present"
+    ],
+    "suggested_fixes": [
+      "Replace em dashes with a comma or hyphen"
+    ],
+    "escalation_reason": null
+  },
+  {
+    "type": "self_correction",
+    "input_draft_body": "Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews - you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "input_draft_subject": null,
+    "verdict": "pass",
+    "failed_checks": [],
+    "suggested_fixes": [],
+    "escalation_reason": null
+  },
+  {
+    "type": "pipeline",
+    "outcome": "send",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "first_touch",
+    "channel": "sms",
+    "draft_action": "send",
+    "draft_subject": null,
+    "draft_body": "Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews - you only pay after each one comes down. Want to go over pricing or set up a quick call?",
+    "draft_reason": null,
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "negotiation_step": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash present"
+        ]
+      },
+      {
+        "attempt": 2,
+        "verdict": "pass",
+        "failed_checks": []
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [self_correction]: verdict='fix'; failed_checks=['copy_rules: em dash present']
+  input draft: Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews — you only pay after each one comes down. Want to go over pricing or set up a quick call?
+Output 2 [self_correction]: verdict='pass'; failed_checks=[]
+  input draft: Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews - you only pay after each one comes down. Want to go over pricing or set up a quick call?
+Output 3 [pipeline]: outcome='send'; draft_action='send'; authorized_quote=n/a; SC attempts=2
+  draft: Hi, this is ReviewArmour. We have your profile for A4 Bakery. We remove policy-violating Google reviews - you only pay after each one comes down. Want to go over pricing or set up a quick call?
+  SC attempt 1: verdict='fix'; failed=['copy_rules: em dash present']
+  SC attempt 2: verdict='pass'; failed=[]
+```
+
+---
+
+### `test_ai_engages_with_lead_reply`
+
+- **Class:** `TestA5_AfterHoursLeadReplies`
+- **Intent:** A5: Lead replies to after-hours AI first touch.
+- **Verdict:** **FAILED**
+- **Duration:** 9.26s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2TtAUe51rh8aefXFFL'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_defamation_lawyer_escalates`
+
+- **Class:** `TestA6_EscalationTriggerLanguage`
+- **Intent:** A6: Lead sends escalation trigger (defamation/lawyer).
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "pipeline",
+    "outcome": "escalate",
+    "inbound_message": "This is defamation. I'm going to talk to my lawyer about this.",
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "main",
+    "channel": "email",
+    "draft_action": "escalate",
+    "draft_subject": null,
+    "draft_body": null,
+    "draft_reason": "legal_escalation:lawyer",
+    "state_updates": {
+      "consecutive_no_progress_turns": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": []
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [pipeline]: outcome='escalate'; draft_action='escalate'; authorized_quote=n/a; SC attempts=0
+  inbound: "This is defamation. I'm going to talk to my lawyer about this."
+```
+
+---
+
+### `test_escalation_no_ai_message_sent`
+
+- **Class:** `TestA6_EscalationTriggerLanguage`
+- **Intent:** A6: Lead sends escalation trigger (defamation/lawyer).
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "pipeline",
+    "outcome": "escalate",
+    "inbound_message": "My attorney will be in touch.",
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "main",
+    "channel": "email",
+    "draft_action": "escalate",
+    "draft_subject": null,
+    "draft_body": null,
+    "draft_reason": "legal_escalation:attorney",
+    "state_updates": {
+      "consecutive_no_progress_turns": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": []
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [pipeline]: outcome='escalate'; draft_action='escalate'; authorized_quote=n/a; SC attempts=0
+  inbound: 'My attorney will be in touch.'
+```
+
+---
+
+### `test_followup_3_at_24h_non_sunday`
+
+- **Class:** `TestA7_LeadDoesNotReplyOvernight`
+- **Intent:** A7: Follow-up cadence: T+30m, T+60m, T+24h, then queued_for_morning.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_followup_schedule_3_touches`
+
+- **Class:** `TestA7_LeadDoesNotReplyOvernight`
+- **Intent:** A7: Follow-up cadence: T+30m, T+60m, T+24h, then queued_for_morning.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_followup_timings`
+
+- **Class:** `TestA7_LeadDoesNotReplyOvernight`
+- **Intent:** A7: Follow-up cadence: T+30m, T+60m, T+24h, then queued_for_morning.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_morning_brief_contains_lead_data`
+
+- **Class:** `TestA8_MorningQueueRelease`
+- **Intent:** A8: Morning queue brief accuracy and priority sorting.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_morning_queue_priority_sorting`
+
+- **Class:** `TestA8_MorningQueueRelease`
+- **Intent:** A8: Morning queue brief accuracy and priority sorting.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_brief_has_opening_lines`
+
+- **Class:** `TestA9_TalkingPointsBriefAccuracy`
+- **Intent:** A9: Brief uses 'not stated' for unknowns, never invents.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_brief_uses_not_stated_for_unknowns`
+
+- **Class:** `TestA9_TalkingPointsBriefAccuracy`
+- **Intent:** A9: Brief uses 'not stated' for unknowns, never invents.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_ca6_step2_margin_fail_escalates`
+
+- **Class:** `TestB10_MarginDiscipline`
+- **Intent:** B10: Quote that would violate 20% margin → escalation.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "CA-6",
+    "authorized_quote_usd_per_review": null,
+    "negotiation_step": 2,
+    "can_quote": false,
+    "escalate": true,
+    "escalation_reason": "Margin discipline: quote below 20 percent minimum margin",
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='CA-6'; quote=None; step=2; escalate=True
+```
+
+---
+
+### `test_margin_fails_over_1_month_at_250`
+
+- **Class:** `TestB10_MarginDiscipline`
+- **Intent:** B10: Quote that would violate 20% margin → escalation.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_pipeline_quotes_500_for_dental`
+
+- **Class:** `TestB1_USDental1ReviewUnderMonth`
+- **Intent:** B1: US dental, 1 review, under 1 month → Tier US-2, $500.
+- **Verdict:** **FAILED**
+- **Duration:** 0.94s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2U7CZ1f19ax5ZbwFJt'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-2",
+    "authorized_quote_usd_per_review": 500,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-2'; quote=500; step=0; escalate=False
+```
+
+---
+
+### `test_tier_us2_dental`
+
+- **Class:** `TestB1_USDental1ReviewUnderMonth`
+- **Intent:** B1: US dental, 1 review, under 1 month → Tier US-2, $500.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-2",
+    "authorized_quote_usd_per_review": 500,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-2'; quote=500; step=0; escalate=False
+```
+
+---
+
+### `test_tier_us3`
+
+- **Class:** `TestB2_USPlumber4ReviewsMostlyUnder`
+- **Intent:** B2: US plumber, 4 reviews, mostly under 1 month → Tier US-3, $425.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-3",
+    "authorized_quote_usd_per_review": 425,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-3'; quote=425; step=0; escalate=False
+```
+
+---
+
+### `test_pipeline_ca_quotes_usd_not_cad`
+
+- **Class:** `TestB3_CARestaurant2ReviewsUnder`
+- **Intent:** B3: CA restaurant, 2 reviews, under 1 month → Tier CA-1, $375 USD.
+- **Verdict:** **FAILED**
+- **Duration:** 1.28s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UD3n6SA2YM3vNqgLj'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "CA-1",
+    "authorized_quote_usd_per_review": 375,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='CA-1'; quote=375; step=0; escalate=False
+```
+
+---
+
+### `test_tier_ca1`
+
+- **Class:** `TestB3_CARestaurant2ReviewsUnder`
+- **Intent:** B3: CA restaurant, 2 reviews, under 1 month → Tier CA-1, $375 USD.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "CA-1",
+    "authorized_quote_usd_per_review": 375,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='CA-1'; quote=375; step=0; escalate=False
+```
+
+---
+
+### `test_first_pushback_us1`
+
+- **Class:** `TestB4_PushbackFirstStep`
+- **Intent:** B4: Lead pushes back once → negotiation step 1.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 425,
+    "negotiation_step": 1,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=425; step=1; escalate=False
+```
+
+---
+
+### `test_pipeline_pushback_step1`
+
+- **Class:** `TestB4_PushbackFirstStep`
+- **Intent:** B4: Lead pushes back once → negotiation step 1.
+- **Verdict:** **FAILED**
+- **Duration:** 1.65s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UK5vHPQLJx7CsMrEX'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 425,
+    "negotiation_step": 1,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=425; step=1; escalate=False
+```
+
+---
+
+### `test_second_pushback_us1`
+
+- **Class:** `TestB5_PushbackSecondStep`
+- **Intent:** B5: Lead pushes back again → negotiation step 2.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 400,
+    "negotiation_step": 2,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=400; step=2; escalate=False
+```
+
+---
+
+### `test_below_floor_escalates`
+
+- **Class:** `TestB6_PushbackBelowFloor`
+- **Intent:** B6: Lead pushes below floor → human escalation.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": null,
+    "negotiation_step": 3,
+    "can_quote": false,
+    "escalate": true,
+    "escalation_reason": "Negotiation past step 2",
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=None; step=3; escalate=True
+```
+
+---
+
+### `test_pipeline_below_floor_escalates`
+
+- **Class:** `TestB6_PushbackBelowFloor`
+- **Intent:** B6: Lead pushes below floor → human escalation.
+- **Verdict:** **PASSED**
+- **Duration:** 0.77s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": null,
+    "negotiation_step": 2,
+    "can_quote": false,
+    "escalate": true,
+    "escalation_reason": "Lead pushing below floor",
+    "request_gbp_first": false
+  },
+  {
+    "type": "pipeline",
+    "outcome": "escalate",
+    "inbound_message": "I need it under $250 per review.",
+    "wants_price": true,
+    "quoted_previously": true,
+    "sequence_stage": "main",
+    "channel": "email",
+    "draft_action": "escalate",
+    "draft_subject": null,
+    "draft_body": null,
+    "draft_reason": "Lead pushing below floor",
+    "state_updates": {
+      "consecutive_no_progress_turns": 0,
+      "ai_conversation_state": "escalated_to_human"
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": [],
+    "commercial": {
+      "tier_id": "US-1",
+      "authorized_quote_usd_per_review": null,
+      "negotiation_step": 2,
+      "can_quote": false,
+      "escalate": true,
+      "escalation_reason": "Lead pushing below floor",
+      "request_gbp_first": false
+    }
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=None; step=2; escalate=True
+Output 2 [pipeline]: outcome='escalate'; draft_action='escalate'; authorized_quote=None; SC attempts=0
+  inbound: 'I need it under $250 per review.'
+```
+
+---
+
+### `test_sc_catches_invented_price`
+
+- **Class:** `TestB7_InventedPrice`
+- **Intent:** B7: Self-correction catches invented price not in the matrix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.36s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2URKDwqkwBwZ41Gihp'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 450,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=450; step=0; escalate=False
+```
+
+---
+
+### `test_commercial_engine_requests_gbp`
+
+- **Class:** `TestB8_GBPLinkMissingLeadAsksPrice`
+- **Intent:** B8: GBP link missing, lead asks for price → AI asks for link first.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": null,
+    "negotiation_step": 0,
+    "can_quote": false,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": true
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=None; step=0; escalate=False
+```
+
+---
+
+### `test_pipeline_asks_for_gbp_link`
+
+- **Class:** `TestB8_GBPLinkMissingLeadAsksPrice`
+- **Intent:** B8: GBP link missing, lead asks for price → AI asks for link first.
+- **Verdict:** **FAILED**
+- **Duration:** 1.10s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UW8guYTFv7mdtdQFf'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": null,
+    "negotiation_step": 0,
+    "can_quote": false,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": true
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=None; step=0; escalate=False
+```
+
+---
+
+### `test_hidden_cost_caught[Our cost to remove this review is $80 per case.-expected_verdict0]`
+
+- **Class:** `TestB9_HiddenCostLeaked`
+- **Intent:** B9: Self-correction catches hidden cost numbers in draft.
+- **Verdict:** **FAILED**
+- **Duration:** 0.46s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UY4mp2vRFGFMpnsHs'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_hidden_cost_caught[The effective cost is approximately $214 per review.-expected_verdict3]`
+
+- **Class:** `TestB9_HiddenCostLeaked`
+- **Intent:** B9: Self-correction catches hidden cost numbers in draft.
+- **Verdict:** **FAILED**
+- **Duration:** 0.62s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Ug8x3US3LN1f5eYLo'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_hidden_cost_caught[The lead acquisition cost was $50.-expected_verdict1]`
+
+- **Class:** `TestB9_HiddenCostLeaked`
+- **Intent:** B9: Self-correction catches hidden cost numbers in draft.
+- **Verdict:** **FAILED**
+- **Duration:** 0.63s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UagnEiZdnw2W9K1B2'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_hidden_cost_caught[We maintain a 20% margin on each deal.-expected_verdict2]`
+
+- **Class:** `TestB9_HiddenCostLeaked`
+- **Intent:** B9: Self-correction catches hidden cost numbers in draft.
+- **Verdict:** **FAILED**
+- **Duration:** 0.61s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UdQFAKx3VRTxVuxDC'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_pipeline_includes_timeline_paragraph`
+
+- **Class:** `TestC1_HowLongUnderMonth`
+- **Intent:** C1: 'How long?' with under-1-month reviews.
+- **Verdict:** **FAILED**
+- **Duration:** 0.96s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UkPSVYVYSFx7NQdtk'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_pipeline_includes_mixed_timeline`
+
+- **Class:** `TestC2_HowLongMixedOver`
+- **Intent:** C2: 'How long?' with mixed/over-1-month reviews.
+- **Verdict:** **FAILED**
+- **Duration:** 1.10s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Uq9giZBPGZFaXSg6e'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_pipeline_success_rate_response`
+
+- **Class:** `TestC3_SuccessRate`
+- **Intent:** C3: 'What's your success rate?' → approved framing, no percentage.
+- **Verdict:** **FAILED**
+- **Duration:** 0.40s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UsDww3e8s8GiZECRX'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_sc_catches_percentage`
+
+- **Class:** `TestC4_DraftContainsPercentage`
+- **Intent:** C4: Self-correction catches specific percentage in draft.
+- **Verdict:** **FAILED**
+- **Duration:** 0.62s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Utrg1SU7E88Hf4SEU'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_methodology_response`
+
+- **Class:** `TestC5_HowDoYouRemoveReviews`
+- **Intent:** C5: Methodology question → approved framing.
+- **Verdict:** **FAILED**
+- **Duration:** 0.87s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2UyMJM4g8UtBD9zNu6'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_operational_detail_deflects`
+
+- **Class:** `TestC6_OperationalDetail`
+- **Intent:** C6: Lead asks for operational detail → deflect to call.
+- **Verdict:** **FAILED**
+- **Duration:** 0.94s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2V3rQzxagoyerFjqTQ'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_warranty_response`
+
+- **Class:** `TestC7_WillReviewComeBack`
+- **Intent:** C7: Warranty questions → approved framing.
+- **Verdict:** **FAILED**
+- **Duration:** 0.82s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2V7UT6U4AuYYowiHtg'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_invented_framing_caught[We guarantee removal within 48 hours.]`
+
+- **Class:** `TestC8_InventedFraming`
+- **Intent:** C8: Self-correction catches invented framing.
+- **Verdict:** **FAILED**
+- **Duration:** 0.68s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2V9VF4UmM1VkCZpqn9'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_invented_framing_caught[We have a direct contact at Google who handles these.]`
+
+- **Class:** `TestC8_InventedFraming`
+- **Intent:** C8: Self-correction catches invented framing.
+- **Verdict:** **FAILED**
+- **Duration:** 0.50s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VBypHTeC29KfZffmM'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_invented_framing_caught[We remove 19 out of 20 reviews successfully.]`
+
+- **Class:** `TestC8_InventedFraming`
+- **Intent:** C8: Self-correction catches invented framing.
+- **Verdict:** **FAILED**
+- **Duration:** 0.36s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VEB2gcwH7eTmixLBD'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_em_dash_caught`
+
+- **Class:** `TestD1_EmDash`
+- **Intent:** D1: Em dash in draft → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.39s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VFjnTC7TsQvq4yxar'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_exclamation_caught`
+
+- **Class:** `TestD2_ExclamationMark`
+- **Intent:** D2: Exclamation mark in draft → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.57s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VJB8RJMZg8u9Ti7UJ'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_flagged_caught`
+
+- **Class:** `TestD3_FlaggedInsteadOfIdentified`
+- **Intent:** D3: 'flagged' instead of 'identified' → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.85s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VMFRqxuUTYZKCK1VD'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_wrong_business_name`
+
+- **Class:** `TestD4_WrongBusinessName`
+- **Intent:** D4: Wrong business name → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.49s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VQ7pDBd1u6ezoaF1o'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_hard_timeline_caught`
+
+- **Class:** `TestD5_HardTimelineCommitment`
+- **Intent:** D5: Hard timeline commitment → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.57s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VSYv5bskVUU1nZsPc'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_three_failures_human_queue`
+
+- **Class:** `TestD6_ThreeFailedRedrafts`
+- **Intent:** D6: Three consecutive SC failures → human_queue with full history.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "pipeline",
+    "outcome": "human_queue",
+    "inbound_message": null,
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "main",
+    "channel": "email",
+    "draft_action": "send",
+    "draft_subject": "Test",
+    "draft_body": "Bad draft — always has em dash!",
+    "draft_reason": null,
+    "state_updates": {},
+    "handoff_payload": null,
+    "human_queue_payload": {
+      "draft": {
+        "subject": "Test",
+        "body": "Bad draft — always has em dash!"
+      },
+      "verdict": "fix",
+      "failed_checks": [
+        "copy_rules: em dash"
+      ],
+      "escalation_reason": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "verdict": "fix",
+          "failed_checks": [
+            "copy_rules: em dash"
+          ],
+          "timestamp": "2026-05-31T17:17:18.238188+00:00"
+        },
+        {
+          "attempt": 2,
+          "verdict": "fix",
+          "failed_checks": [
+            "copy_rules: em dash"
+          ],
+          "timestamp": "2026-05-31T17:17:18.238188+00:00"
+        },
+        {
+          "attempt": 3,
+          "verdict": "fix",
+          "failed_checks": [
+            "copy_rules: em dash"
+          ],
+          "timestamp": "2026-05-31T17:17:18.238188+00:00"
+        }
+      ]
+    },
+    "self_correction_logs": [
+      {
+        "attempt": 1,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash"
+        ]
+      },
+      {
+        "attempt": 2,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash"
+        ]
+      },
+      {
+        "attempt": 3,
+        "verdict": "fix",
+        "failed_checks": [
+          "copy_rules: em dash"
+        ]
+      }
+    ]
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+Output 1 [pipeline]: outcome='human_queue'; draft_action='send'; authorized_quote=n/a; SC attempts=3
+  draft: Bad draft — always has em dash!
+  SC attempt 1: verdict='fix'; failed=['copy_rules: em dash']
+  SC attempt 2: verdict='fix'; failed=['copy_rules: em dash']
+  SC attempt 3: verdict='fix'; failed=['copy_rules: em dash']
+```
+
+---
+
+### `test_wrong_footer_caught`
+
+- **Class:** `TestD7_WrongRegionalFooter`
+- **Intent:** D7: CA lead with US/Miami footer → fix.
+- **Verdict:** **FAILED**
+- **Duration:** 0.62s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VVD9kJaSLgbZqW8x3'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_clean_draft_passes`
+
+- **Class:** `TestD8_CleanDraftPasses`
+- **Intent:** D8: Well-formed draft passes on first attempt.
+- **Verdict:** **FAILED**
+- **Duration:** 0.47s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VXSMBWmUCLbDV8wKn'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-2",
+    "authorized_quote_usd_per_review": 500,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-2'; quote=500; step=0; escalate=False
+```
+
+---
+
+### `test_acceptance_lets_do_it`
+
+- **Class:** `TestE1_LetsDoIt`
+- **Intent:** E1: Lead replies 'let's do it' → quote_accepted + handoff.
+- **Verdict:** **FAILED**
+- **Duration:** 1.39s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VdLJixFxyTpxVwPyo'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_confirmation_body_rules`
+
+- **Class:** `TestE1_LetsDoIt`
+- **Intent:** E1: Lead replies 'let's do it' → quote_accepted + handoff.
+- **Verdict:** **FAILED**
+- **Duration:** 1.80s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Vkp1nFgqjYYo6YMe1'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_send_invoice_acceptance`
+
+- **Class:** `TestE2_SendTheInvoice`
+- **Intent:** E2: 'Send the invoice' triggers same acceptance flow.
+- **Verdict:** **FAILED**
+- **Duration:** 1.36s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VriDtBz7rzPhLUswz'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_ok_not_accepted_by_llm`
+
+- **Class:** `TestE3_AmbiguousOk`
+- **Intent:** E3: Ambiguous 'ok' after quote — LLM should not accept.
+- **Verdict:** **FAILED**
+- **Duration:** 1.41s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2VxftzGsSc11gnv4Yj'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_acceptance_state_set_before_slack`
+
+- **Class:** `TestE4_SlackDeliveryFails`
+- **Intent:** E4: Slack delivery fails — pipeline records acceptance state regardless.
+    Slack not connected — verifying state is set before Slack would fire.
+- **Verdict:** **FAILED**
+- **Duration:** 1.12s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WmELqASYzbJ6BW92g'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_confirmation_ca_footer`
+
+- **Class:** `TestE5_ConfirmationMessageRules`
+- **Intent:** E5: Confirmation message passes all copy rules.
+- **Verdict:** **FAILED**
+- **Duration:** 1.49s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WCnxZZhrvHbsR9TJH'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_confirmation_us_footer`
+
+- **Class:** `TestE5_ConfirmationMessageRules`
+- **Intent:** E5: Confirmation message passes all copy rules.
+- **Verdict:** **FAILED**
+- **Duration:** 1.70s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2W6E4mqZZq9ALfE7oc'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_no_stall_at_5h59`
+
+- **Class:** `TestF1_StallAt6Hours`
+- **Intent:** F1: 6-hour silence after quote → stalled_post_quote.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_stall_at_6h`
+
+- **Class:** `TestF1_StallAt6Hours`
+- **Intent:** F1: 6-hour silence after quote → stalled_post_quote.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_stall_payload_has_salesman_page`
+
+- **Class:** `TestF1_StallAt6Hours`
+- **Intent:** F1: 6-hour silence after quote → stalled_post_quote.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_backup_at_12h`
+
+- **Class:** `TestF2_BackupAt12Hours`
+- **Intent:** F2: 12-hour silence → backup_jayden page.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_lead_reply_during_stall`
+
+- **Class:** `TestF3_LeadRepliesBeforeSalesman`
+- **Intent:** F3: Lead replies during stall window — pipeline resumes normally.
+- **Verdict:** **FAILED**
+- **Duration:** 1.45s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WJL5nPU6Xv59LFNSy'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_hard_no_stall_at_2h`
+
+- **Class:** `TestF4_StallWindowConfigurable`
+- **Intent:** F4: soft_quote_mode changes stall window from 6h to 2h.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_soft_stall_at_2h`
+
+- **Class:** `TestF4_StallWindowConfigurable`
+- **Intent:** F4: soft_quote_mode changes stall window from 6h to 2h.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_stall_payloads_independent`
+
+- **Class:** `TestF5_MultipleStalls`
+- **Intent:** F5: Multiple stalled leads — each has independent context.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_sunday_deferred`
+
+- **Class:** `TestG5_SundayDeferral`
+- **Intent:** G5: Sunday touch defers to Monday 08:00 EST.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_touch1_sms_draft`
+
+- **Class:** `TestH2_Touch1SMS`
+- **Intent:** H2: Touch 1 SMS — contains first name, summary, link, under 200 chars.
+- **Verdict:** **FAILED**
+- **Duration:** 0.52s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WLucgcudQ8EyA3qu1'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_touch2_email_draft`
+
+- **Class:** `TestH3_Touch2Email`
+- **Intent:** H3: Touch 2 email — under 80 words.
+- **Verdict:** **FAILED**
+- **Duration:** 0.53s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WPfZLvnKUkV4BzjBE'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_touch3_sms_draft`
+
+- **Class:** `TestH4_Touch3SMS`
+- **Intent:** H4: Touch 3 SMS — under 160 chars, non-pressuring.
+- **Verdict:** **FAILED**
+- **Duration:** 0.38s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WRLmQBVeVk293bGaZ'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_sunday_deferred`
+
+- **Class:** `TestH6_SundayReviewRequestDefers`
+- **Intent:** H6: Sunday-due review request touch defers to Monday 08:00 EST.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_star_rating_caught`
+
+- **Class:** `TestH7_StarRatingInDraft`
+- **Intent:** H7: Self-correction catches star-rating ask in review request.
+- **Verdict:** **FAILED**
+- **Duration:** 0.42s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WSyEs82zWp35waGhX'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_incentive_caught`
+
+- **Class:** `TestH8_IncentiveInDraft`
+- **Intent:** H8: Self-correction catches incentive language in review request.
+- **Verdict:** **FAILED**
+- **Duration:** 1.16s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WY26kS8o3bECfkEvx'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_off_topic_redirect_then_reengage`
+
+- **Class:** `TestI10_USOffTopicRedirect`
+- **Intent:** I10: US, sends off-topic (SEO). AI redirects. Lead re-engages.
+- **Verdict:** **FAILED**
+- **Duration:** 0.74s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2XJSKFHxHmaAAmLuCS'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_full_conversation`
+
+- **Class:** `TestI1_USDentistCooperativeAcceptsOpening`
+- **Intent:** I1: US, 2 reviews under 1 month, dentist. Cooperative. Accepts opening quote.
+- **Verdict:** **FAILED**
+- **Duration:** 0.43s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2Wo6TuZAyt3f6YousD'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_full_negotiation`
+
+- **Class:** `TestI2_USContractorPushesBackTwice`
+- **Intent:** I2: US, 1 review under 1 month, contractor (high-ticket). Pushes back twice.
+- **Verdict:** **FAILED**
+- **Duration:** 0.37s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WpmRRJmLJsyhQG1c9'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_negotiation_triggers_logged`
+
+- **Class:** `TestI2_USContractorPushesBackTwice`
+- **Intent:** I2: US, 1 review under 1 month, contractor (high-ticket). Pushes back twice.
+- **Verdict:** **PASSED**
+- **Duration:** 0.00s
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions passed against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_bulk_pricing_conversation`
+
+- **Class:** `TestI3_CABulkMixedRecency`
+- **Intent:** I3: CA, 5 reviews mixed recency, restaurant. Bulk pricing CA-6.
+- **Verdict:** **FAILED**
+- **Duration:** 0.37s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WrPA5CM22hxcGzQBg'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_google_partner_methodology_framing`
+
+- **Class:** `TestI4_USLawyerGooglePartnerBooksCall`
+- **Intent:** I4: US lawyer asks 'are you a Google partner?' — methodology framing, not escalation.
+- **Verdict:** **FAILED**
+- **Duration:** 0.81s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WutzXxyf4qJZ1tdAx'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_full_conversation_with_framing`
+
+- **Class:** `TestI5_CASuccessRateTimelineAccepts`
+- **Intent:** I5: CA, 2 reviews under 1 month. Asks success rate, timeline, price, then accepts.
+- **Verdict:** **FAILED**
+- **Duration:** 0.44s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2WwVjHX6QvWLWWU3Wh'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
+
+### `test_full_negotiation_to_escalation`
+
+- **Class:** `TestI6_USPushesBelowFloorEscalates`
+- **Intent:** I6: US, 2 reviews. Pushes through all steps and below floor → escalation.
+- **Verdict:** **FAILED**
+- **Duration:** 0.94s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2X1kTxQ2jEGLkqSe6N'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 450,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=450; step=0; escalate=False
+```
+
+---
+
+### `test_stall_detection_after_silence`
+
+- **Class:** `TestI7_USStallAfterQuote`
+- **Intent:** I7: US, accepts quote thinking, goes silent. Stall fires at hour 6.
+- **Verdict:** **FAILED**
+- **Duration:** 0.87s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2X5Qz1oHWnvvWGEhsN'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "commercial",
+    "wants_price": true,
+    "tier_id": "US-1",
+    "authorized_quote_usd_per_review": 450,
+    "negotiation_step": 0,
+    "can_quote": true,
+    "escalate": false,
+    "escalation_reason": null,
+    "request_gbp_first": false
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [commercial]: tier='US-1'; quote=450; step=0; escalate=False
+```
+
+---
+
+### `test_lawyer_escalation_and_followup_blocked`
+
+- **Class:** `TestI8_USLawyerMentionEscalation`
+- **Intent:** I8: US, mentions lawyer. Immediate escalation. Follow-up routes to human.
+- **Verdict:** **FAILED**
+- **Duration:** 0.78s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2X8znQ1RQVxExCR59M'}`
+
+#### Output produced
+
+```json
+[
+  {
+    "type": "pipeline",
+    "outcome": "escalate",
+    "inbound_message": "This review is defamatory. I might call my lawyer about it.",
+    "wants_price": null,
+    "quoted_previously": null,
+    "sequence_stage": "main",
+    "channel": "email",
+    "draft_action": "escalate",
+    "draft_subject": null,
+    "draft_body": null,
+    "draft_reason": "legal_escalation:lawyer",
+    "state_updates": {
+      "consecutive_no_progress_turns": 0
+    },
+    "handoff_payload": null,
+    "human_queue_payload": null,
+    "self_correction_logs": []
+  }
+]
+```
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+Output 1 [pipeline]: outcome='escalate'; draft_action='escalate'; authorized_quote=n/a; SC attempts=0
+  inbound: 'This review is defamatory. I might call my lawyer about it.'
+```
+
+---
+
+### `test_pay_anchor_then_acceptance`
+
+- **Class:** `TestI9_CAPayAfterRemovalAccepts`
+- **Intent:** I9: CA, 'what if it doesn't work' (pre-payment concern). Pay-after-removal anchor.
+- **Verdict:** **FAILED**
+- **Duration:** 1.46s
+- **Failure:** `Anthropic API error: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011Cbb2XFJJARXvSEg59bxzt'}`
+
+#### Output produced
+
+_No pipeline/SC/commercial output captured._
+
+#### Verdict on output
+
+Test assertions **failed** against the captured output(s) above.
+
+```text
+No API output captured (deterministic assertion only).
+```
+
+---
