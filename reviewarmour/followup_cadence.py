@@ -17,7 +17,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from reviewarmour.models import Channel, Country, LeadRecord
+from reviewarmour.models import (
+    CallOutcome,
+    Channel,
+    Country,
+    LeadRecord,
+    ScheduledPostCallTouch,
+)
 from reviewarmour.scheduling import EST, defer_sunday_touch_to_monday_8am_est
 
 _FOLLOWUP_1_SUBJECT = "Re: {business_name} - Google reviews"
@@ -219,6 +225,255 @@ def _n_lead_replies(transcript: list[dict[str, Any]]) -> int:
         for row in transcript
         if str(row.get("role") or "").lower() in ("lead", "user")
     )
+
+
+# ---------------------------------------------------------------------------
+# Post-call follow-up templates (Section 15)
+# ---------------------------------------------------------------------------
+
+# Standard sequence (undecided) — email templates
+_PC_STD_1_SUBJECT = "Re: {business_name} - Great speaking with you"
+_PC_STD_1_BODY = (
+    "Hi {first_name},\n\n"
+    "Good speaking earlier about Google review removal for {business_name}. "
+    "If you are ready to move forward, reply here and we will get started right away.\n\n"
+    "{footer}"
+)
+_PC_STD_2_SUBJECT = "Re: {business_name} - Quick observation"
+_PC_STD_2_BODY = (
+    "Hi {first_name},\n\n"
+    "One thing worth noting: the sooner policy-violating reviews are addressed for "
+    "{business_name}, the less they weigh on your overall rating. Happy to walk through "
+    "next steps when you are ready.\n\n"
+    "{footer}"
+)
+_PC_STD_3_SUBJECT = "Re: {business_name} - Business impact"
+_PC_STD_3_BODY = (
+    "Hi {first_name},\n\n"
+    "Every week those reviews stay up, {business_name} loses potential customers who check "
+    "Google before calling. If the timing works, reply here and we will handle the rest.\n\n"
+    "{footer}"
+)
+_PC_STD_4_SUBJECT = "Re: {business_name} - Closing the loop"
+_PC_STD_4_BODY = (
+    "Hi {first_name},\n\n"
+    "Last note from me on Google review removal for {business_name}. If you want to revisit "
+    "this later, you know where to find us. Otherwise I will close your file on our end.\n\n"
+    "{footer}"
+)
+
+# Standard sequence — SMS templates
+_PC_STD_SMS_1 = (
+    "Hi {first_name}, good call earlier re {business_name} reviews. "
+    "Reply when ready to move forward. {footer}"
+)
+_PC_STD_SMS_2 = (
+    "Hi {first_name}, quick note on {business_name}: sooner those reviews come down, "
+    "the better for your rating. Reply if ready. {footer}"
+)
+_PC_STD_SMS_3 = (
+    "Hi {first_name}, every week those reviews stay up costs {business_name} customers. "
+    "Reply here to get started. {footer}"
+)
+_PC_STD_SMS_4 = (
+    "Hi {first_name}, last note on review removal for {business_name}. "
+    "Reply if you want to revisit. {footer}"
+)
+
+# Accelerated sequence (no_show / unreachable) — SMS templates
+_PC_ACC_SMS_1 = (
+    "Hi {first_name}, just missed you for the {business_name} call. "
+    "Reply with a good time and we will ring you right back. {footer}"
+)
+_PC_ACC_SMS_2 = (
+    "Hi {first_name}, tried reaching you earlier re {business_name} reviews. "
+    "Reply here or pick a slot and we will call at your convenience. {footer}"
+)
+_PC_ACC_EMAIL_2_SUBJECT = "Re: {business_name} - Missed you earlier"
+_PC_ACC_EMAIL_2_BODY = (
+    "Hi {first_name},\n\n"
+    "Tried reaching you earlier about Google review removal for {business_name}. "
+    "Reply here or let me know a good time for a quick call.\n\n"
+    "{footer}"
+)
+_PC_ACC_SMS_3 = (
+    "Hi {first_name}, following up on {business_name} reviews. "
+    "Free for a quick call this week? Reply with a time. {footer}"
+)
+_PC_ACC_EMAIL_3_SUBJECT = "Re: {business_name} - Can we reschedule?"
+_PC_ACC_EMAIL_3_BODY = (
+    "Hi {first_name},\n\n"
+    "Still hoping to connect about {business_name}. "
+    "Reply with a time that works and I will have a specialist call you.\n\n"
+    "{footer}"
+)
+_PC_ACC_SMS_4 = (
+    "Hi {first_name}, final note on review removal for {business_name}. "
+    "Reply if timing works better now. {footer}"
+)
+_PC_ACC_EMAIL_4_SUBJECT = "Re: {business_name} - Last note"
+_PC_ACC_EMAIL_4_BODY = (
+    "Hi {first_name},\n\n"
+    "Last outreach on Google review removal for {business_name}. If the timing is not right, "
+    "no pressure. Reply any time to pick this back up.\n\n"
+    "{footer}"
+)
+
+
+def _defer_and_track(
+    raw_utc: datetime,
+) -> tuple[datetime, dict[str, Any], Optional[datetime]]:
+    eff = defer_sunday_touch_to_monday_8am_est(raw_utc)
+    if _same_utc_instant(eff, raw_utc):
+        return eff, {}, None
+    return (
+        eff,
+        {
+            "lead_status": "queued_for_morning",
+            "deferred_from_utc": raw_utc.isoformat(),
+            "defer_reason": "sunday_blackout_est",
+        },
+        raw_utc,
+    )
+
+
+def schedule_post_call_standard(
+    call_ended_utc: datetime,
+    lead: LeadRecord,
+) -> list[ScheduledPostCallTouch]:
+    """Standard sequence for ``undecided``: T+24h, T+72h, T+7d, T+14d.
+
+    Touch 1 is multi-channel (email + SMS). Touches 2-4 are single-channel email.
+    Sunday-due touches defer to Monday 08:00 EST.
+    """
+    if call_ended_utc.tzinfo is None:
+        anchor = call_ended_utc.replace(tzinfo=timezone.utc)
+    else:
+        anchor = call_ended_utc
+
+    raw_times = [
+        anchor + timedelta(hours=24),
+        anchor + timedelta(hours=72),
+        anchor + timedelta(days=7),
+        anchor + timedelta(days=14),
+    ]
+
+    email_templates = [
+        (_PC_STD_1_SUBJECT, _PC_STD_1_BODY),
+        (_PC_STD_2_SUBJECT, _PC_STD_2_BODY),
+        (_PC_STD_3_SUBJECT, _PC_STD_3_BODY),
+        (_PC_STD_4_SUBJECT, _PC_STD_4_BODY),
+    ]
+    sms_templates = [_PC_STD_SMS_1, _PC_STD_SMS_2, _PC_STD_SMS_3, _PC_STD_SMS_4]
+
+    touches: list[ScheduledPostCallTouch] = []
+    for i, raw_t in enumerate(raw_times):
+        eff_t, updates, raw_meta = _defer_and_track(raw_t)
+        subj = _format_followup_text(email_templates[i][0], lead)
+        body = _format_followup_text(email_templates[i][1], lead)
+        sms = _format_sms_followup(sms_templates[i], lead)
+
+        channels = [Channel.EMAIL, Channel.SMS] if i == 0 else [Channel.EMAIL]
+
+        touches.append(
+            ScheduledPostCallTouch(
+                index=i + 1,
+                fire_at_utc=eff_t,
+                channels=channels,
+                subject=subj,
+                body=body,
+                sms_body=sms if Channel.SMS in channels else None,
+                state_updates=updates,
+                raw_fire_at_utc=raw_meta,
+            )
+        )
+    return touches
+
+
+def schedule_post_call_accelerated(
+    call_ended_utc: datetime,
+    lead: LeadRecord,
+) -> list[ScheduledPostCallTouch]:
+    """Accelerated sequence for ``no_show`` / ``unreachable``: T+15m, T+2h, T+24h, T+72h.
+
+    Touch 1 is SMS-only. Touch 2+ are multi-channel (SMS + email).
+    Sunday-due touches defer to Monday 08:00 EST.
+    """
+    if call_ended_utc.tzinfo is None:
+        anchor = call_ended_utc.replace(tzinfo=timezone.utc)
+    else:
+        anchor = call_ended_utc
+
+    raw_times = [
+        anchor + timedelta(minutes=15),
+        anchor + timedelta(hours=2),
+        anchor + timedelta(hours=24),
+        anchor + timedelta(hours=72),
+    ]
+
+    sms_templates = [_PC_ACC_SMS_1, _PC_ACC_SMS_2, _PC_ACC_SMS_3, _PC_ACC_SMS_4]
+    email_templates = [
+        (None, None),
+        (_PC_ACC_EMAIL_2_SUBJECT, _PC_ACC_EMAIL_2_BODY),
+        (_PC_ACC_EMAIL_3_SUBJECT, _PC_ACC_EMAIL_3_BODY),
+        (_PC_ACC_EMAIL_4_SUBJECT, _PC_ACC_EMAIL_4_BODY),
+    ]
+
+    touches: list[ScheduledPostCallTouch] = []
+    for i, raw_t in enumerate(raw_times):
+        eff_t, updates, raw_meta = _defer_and_track(raw_t)
+        sms = _format_sms_followup(sms_templates[i], lead)
+
+        if i == 0:
+            channels = [Channel.SMS]
+            subj = None
+            body = sms
+            sms_body = sms
+        else:
+            channels = [Channel.SMS, Channel.EMAIL]
+            subj = _format_followup_text(email_templates[i][0], lead)
+            body = _format_followup_text(email_templates[i][1], lead)
+            sms_body = sms
+
+        touches.append(
+            ScheduledPostCallTouch(
+                index=i + 1,
+                fire_at_utc=eff_t,
+                channels=channels,
+                subject=subj,
+                body=body,
+                sms_body=sms_body,
+                state_updates=updates,
+                raw_fire_at_utc=raw_meta,
+            )
+        )
+    return touches
+
+
+def schedule_post_call_follow_ups(
+    call_outcome: CallOutcome,
+    call_ended_utc: datetime,
+    lead: LeadRecord,
+    *,
+    callback_datetime_utc: Optional[datetime] = None,
+) -> list[ScheduledPostCallTouch]:
+    """Route to the correct sequence based on call outcome.
+
+    Returns an empty list for ``won`` and ``lost_hard`` (no follow-up needed).
+    For ``callback_requested``, returns the standard sequence starting from the
+    callback time instead of call-ended time.
+    """
+    if call_outcome in (CallOutcome.WON, CallOutcome.LOST_HARD):
+        return []
+
+    if call_outcome == CallOutcome.CALLBACK_REQUESTED:
+        anchor = callback_datetime_utc or call_ended_utc
+        return schedule_post_call_standard(anchor, lead)
+
+    if call_outcome in (CallOutcome.NO_SHOW, CallOutcome.UNREACHABLE):
+        return schedule_post_call_accelerated(call_ended_utc, lead)
+
+    return schedule_post_call_standard(call_ended_utc, lead)
 
 
 def build_morning_queue_brief(

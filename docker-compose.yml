@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: reviewarmour
+      POSTGRES_USER: reviewarmour
+      POSTGRES_PASSWORD: localdev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://reviewarmour:localdev@db:5432/reviewarmour
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_US_PHONE: ${TWILIO_US_PHONE}
+      TWILIO_CA_PHONE: ${TWILIO_CA_PHONE}
+      SES_REGION: ${SES_REGION:-us-east-1}
+      SES_SENDER_EMAIL_US: ${SES_SENDER_EMAIL_US}
+      SES_SENDER_EMAIL_CA: ${SES_SENDER_EMAIL_CA}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_INVOICE_CHANNEL: ${SLACK_INVOICE_CHANNEL}
+      SLACK_STALL_CHANNEL: ${SLACK_STALL_CHANNEL}
+      SLACK_SALESMAN_CHANNEL: ${SLACK_SALESMAN_CHANNEL}
+      JAYDEN_PHONE: ${JAYDEN_PHONE}
+      AI_QUOTE_ALLOWED: "true"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

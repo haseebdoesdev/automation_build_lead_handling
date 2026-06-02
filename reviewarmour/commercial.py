@@ -209,10 +209,12 @@ class CommercialResult:
     margin_passed: bool
     negotiation_triggers: list[dict]
     commercial_turn: Optional[CommercialTurnMarker] = None
+    soft_quote_mode: bool = False
+    soft_quote_range: Optional[tuple[int, int]] = None
 
     def to_prompt_dict(self) -> dict:
         """Safe for conversation model: no hidden cost internals or undisclosed floor."""
-        return {
+        d = {
             "tier_id": self.tier_id,
             "opening": self.opening,
             "neg_1": self.neg_1,
@@ -224,6 +226,12 @@ class CommercialResult:
             "escalate": self.escalate,
             "escalation_reason": self.escalation_reason,
         }
+        if self.soft_quote_mode and self.soft_quote_range:
+            d["soft_quote_range"] = {
+                "low": self.soft_quote_range[0],
+                "high": self.soft_quote_range[1],
+            }
+        return d
 
 
 class CommercialEngine:
@@ -261,6 +269,69 @@ class CommercialEngine:
                 escalation_reason="ai_quote_allowed is false",
                 margin_passed=False,
                 negotiation_triggers=triggers,
+            )
+
+        # Soft-quote mode: return a range, no negotiation, pushback escalates
+        if lead.soft_quote_mode and wants_price:
+            band = _pick_tier(lead)
+
+            if not lead.has_gbp_link():
+                return CommercialResult(
+                    tier_id=band.tier_id,
+                    opening=band.opening,
+                    neg_1=band.neg_1,
+                    neg_2=band.neg_2,
+                    floor=band.floor,
+                    negotiation_step=0,
+                    authorized_quote_usd_per_review=None,
+                    can_quote=False,
+                    request_gbp_first=True,
+                    escalate=False,
+                    escalation_reason=None,
+                    margin_passed=True,
+                    negotiation_triggers=triggers,
+                    soft_quote_mode=True,
+                )
+
+            if lead_requested_price_below_floor or lead.negotiation_step > 0:
+                return CommercialResult(
+                    tier_id=band.tier_id,
+                    opening=band.opening,
+                    neg_1=band.neg_1,
+                    neg_2=band.neg_2,
+                    floor=band.floor,
+                    negotiation_step=lead.negotiation_step,
+                    authorized_quote_usd_per_review=None,
+                    can_quote=False,
+                    request_gbp_first=False,
+                    escalate=True,
+                    escalation_reason="Soft-quote mode: pushback escalates to salesman",
+                    margin_passed=True,
+                    negotiation_triggers=triggers,
+                    soft_quote_mode=True,
+                )
+
+            range_low = min(band.neg_2, band.opening)
+            range_high = band.opening
+            return CommercialResult(
+                tier_id=band.tier_id,
+                opening=band.opening,
+                neg_1=band.neg_1,
+                neg_2=band.neg_2,
+                floor=band.floor,
+                negotiation_step=0,
+                authorized_quote_usd_per_review=band.opening,
+                can_quote=True,
+                request_gbp_first=False,
+                escalate=False,
+                escalation_reason=None,
+                margin_passed=True,
+                negotiation_triggers=triggers,
+                commercial_turn=CommercialTurnMarker(
+                    sent_at=now, last_quote_usd_per_review=band.opening, negotiation_step=0,
+                ),
+                soft_quote_mode=True,
+                soft_quote_range=(range_low, range_high),
             )
 
         if lead_requested_price_below_floor:

@@ -27,6 +27,39 @@ class Channel(str, Enum):
     SMS = "sms"
 
 
+class CallOutcome(str, Enum):
+    WON = "won"
+    LOST_HARD = "lost_hard"
+    UNDECIDED = "undecided"
+    CALLBACK_REQUESTED = "callback_requested"
+    NO_SHOW = "no_show"
+    UNREACHABLE = "unreachable"
+
+
+class LeadStatus(str, Enum):
+    CAPTURED = "captured"
+    DISPATCHED_TO_SALESMAN = "dispatched_to_salesman"
+    AI_ENGAGED = "ai_engaged"
+    AI_ESCALATED = "ai_escalated"
+    QUOTE_ACCEPTED = "quote_accepted"
+    STALLED_POST_QUOTE = "stalled_post_quote"
+    BOOKED_CALL = "booked_call"
+    QUEUED_FOR_MORNING = "queued_for_morning"
+    MORNING_CALLED = "morning_called"
+    WON = "won"
+    LOST = "lost"
+    UNREACHABLE = "unreachable"
+    CUSTOMER_REVIEW_PENDING = "customer_review_pending"
+    CUSTOMER_REVIEW_COMPLETE = "customer_review_complete"
+
+
+class RouteDecision(str, Enum):
+    BUSINESS_HOURS_SALESMAN = "business_hours_salesman"
+    AFTER_HOURS_AI = "after_hours_ai"
+    MORNING_QUEUE = "morning_queue"
+    AI_ESCALATED_TO_HUMAN = "ai_escalated_to_human"
+
+
 @dataclass
 class NegotiationTriggerLogEntry:
     step_after: int  # 1 or 2 (step index after this pushback)
@@ -78,6 +111,20 @@ class LeadRecord:
 
     def has_gbp_link(self) -> bool:
         return bool(self.gbp_link and str(self.gbp_link).strip())
+
+@dataclass(frozen=True)
+class ScheduledPostCallTouch:
+    """One scheduled post-call follow-up touch."""
+
+    index: int
+    fire_at_utc: datetime
+    channels: list[Channel]
+    subject: Optional[str]
+    body: str
+    sms_body: Optional[str] = None
+    state_updates: dict[str, Any] = field(default_factory=dict)
+    raw_fire_at_utc: Optional[datetime] = None
+
 
 @dataclass
 class CommercialTurnMarker:
