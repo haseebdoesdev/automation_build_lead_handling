@@ -78,7 +78,6 @@ async def receive_form_submission(
         urgency_flag=form.urgency_flag,
         free_text_notes=form.free_text_notes,
         lead_status="captured",
-        lead_cost_estimated_usd=config.default_lead_cost_usd,
         ai_quote_allowed=config.ai_quote_allowed,
         soft_quote_mode=config.soft_quote_mode,
     )

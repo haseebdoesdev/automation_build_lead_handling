@@ -146,6 +146,171 @@ def _collapse_whitespace(body: str) -> str:
     return re.sub(r"\s+", " ", (body or "").strip())
 
 
+# Spec v2 Section 13 — deterministic SC pre-checks
+# ------------------------------------------------------------------------
+
+# Matches any USD figure: $400, $1,200, 425 USD, 400 dollars
+_USD_FIGURE_RE = re.compile(
+    r"(?:\$\s?\d[\d,]*(?:\.\d+)?|"
+    r"\b\d{2,4}\s*(?:USD|usd|dollars?)\b|"
+    r"\b\d{2,4}\s*(?:per\s+review|/review|/per\s+review))",
+    re.IGNORECASE,
+)
+
+# Spec v2 Section 13: banned ROI/CLV/lifetime-value language in any AI message.
+_ROI_CLV_PATTERNS = (
+    re.compile(r"\broi\b", re.IGNORECASE),
+    re.compile(r"\breturn on investment\b", re.IGNORECASE),
+    re.compile(r"\bclv\b", re.IGNORECASE),
+    re.compile(r"\bcustomer lifetime value\b", re.IGNORECASE),
+    re.compile(r"\blifetime value\b", re.IGNORECASE),
+    re.compile(r"\bvalue per customer\b", re.IGNORECASE),
+    re.compile(r"\brevenue per customer\b", re.IGNORECASE),
+)
+
+# Internal financial data the AI must never put in customer messages.
+_HIDDEN_COST_PATTERNS = (
+    re.compile(r"\bcost\s+(?:to\s+remove|of\s+removal|per\s+removal)\b", re.IGNORECASE),
+    re.compile(r"\blead\s+(?:cost|acquisition\s+cost)\b", re.IGNORECASE),
+    re.compile(r"\bour\s+margin\b", re.IGNORECASE),
+    re.compile(r"\bmargin\s+(?:percentage|percent|%|floor|minimum)\b", re.IGNORECASE),
+    re.compile(r"\bour\s+cost\b", re.IGNORECASE),
+)
+
+
+def _draft_dollar_figures(draft_body: str) -> list[str]:
+    """Return raw USD figure substrings appearing in the draft."""
+    return _USD_FIGURE_RE.findall(draft_body or "")
+
+
+def _phone_call_threshold_violation_check(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    commercial_snapshot: Optional[dict[str, Any]],
+) -> SelfCorrectionVerdict:
+    """Spec v2 Section 4 + 13: If phone_call_threshold_triggered=True the draft
+    must NOT contain any specific dollar quote. Verdict → fix on violation.
+    """
+    if not commercial_snapshot:
+        return verdict
+    if not commercial_snapshot.get("phone_call_threshold_triggered"):
+        return verdict
+
+    figures = _draft_dollar_figures(draft_body)
+    if not figures:
+        return verdict
+
+    failed = list(verdict.failed_checks)
+    failed.append(
+        "phone_call_threshold: draft contains a dollar figure but quote must "
+        "be routed to phone call"
+    )
+    fixes = list(verdict.suggested_fixes)
+    fixes.append(
+        "Remove any specific dollar amount. Tell the lead their specialist will "
+        "walk them through pricing on a quick call."
+    )
+    new_verdict = "fix" if verdict.verdict == "pass" else verdict.verdict
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=fixes,
+        escalation_reason=verdict.escalation_reason,
+    )
+
+
+def _roi_clv_language_check(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+) -> SelfCorrectionVerdict:
+    """Spec v2 Section 13: ROI / CLV / lifetime-value language is forbidden in
+    every AI message. Verdict → fix.
+    """
+    body = draft_body or ""
+    hits = [p.pattern for p in _ROI_CLV_PATTERNS if p.search(body)]
+    if not hits:
+        return verdict
+    failed = list(verdict.failed_checks)
+    failed.append(f"roi_clv_language: matched patterns {hits}")
+    fixes = list(verdict.suggested_fixes)
+    fixes.append(
+        "Remove ROI / lifetime-value / return-on-investment framing. Speak to "
+        "the immediate review-removal outcome only."
+    )
+    new_verdict = "fix" if verdict.verdict == "pass" else verdict.verdict
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=fixes,
+        escalation_reason=verdict.escalation_reason,
+    )
+
+
+def _hidden_cost_language_check(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+) -> SelfCorrectionVerdict:
+    """Spec v2 Section 11: internal financial data ('our margin', 'cost to
+    remove', 'lead cost', etc.) in a draft is an immediate escalation.
+    """
+    body = draft_body or ""
+    hits = [p.pattern for p in _HIDDEN_COST_PATTERNS if p.search(body)]
+    if not hits:
+        return verdict
+    failed = list(verdict.failed_checks)
+    failed.append(f"hidden_cost_leak: matched patterns {hits}")
+    fixes = list(verdict.suggested_fixes)
+    fixes.append("Remove all internal cost / margin language.")
+    return SelfCorrectionVerdict(
+        verdict="escalate",
+        failed_checks=failed,
+        suggested_fixes=fixes,
+        escalation_reason="hidden_cost_leak",
+    )
+
+
+def _floor_breach_check(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    commercial_snapshot: Optional[dict[str, Any]],
+) -> SelfCorrectionVerdict:
+    """Spec v2 Section 1: tier floors are absolute. If the draft quotes a
+    per-review price below the tier floor, escalate.
+    """
+    if not commercial_snapshot:
+        return verdict
+    floor = commercial_snapshot.get("floor_usd") or commercial_snapshot.get("floor")
+    if not floor:
+        return verdict
+    body = draft_body or ""
+    # Look for the dollar-USD figures and extract the integer.
+    matches = re.findall(r"\$\s?(\d[\d,]*)(?:\.\d+)?", body)
+    for m in matches:
+        try:
+            val = int(m.replace(",", ""))
+        except ValueError:
+            continue
+        # Per-review prices live in $100–$999; ignore $1000+ (total-deal mentions).
+        if 100 <= val <= 999 and val < floor:
+            failed = list(verdict.failed_checks) + [
+                f"floor_breach: quoted ${val} < tier floor ${floor}"
+            ]
+            fixes = list(verdict.suggested_fixes) + [
+                f"Do not quote below ${floor}/review. Escalate to human."
+            ]
+            return SelfCorrectionVerdict(
+                verdict="escalate",
+                failed_checks=failed,
+                suggested_fixes=fixes,
+                escalation_reason="floor_breach",
+            )
+    return verdict
+
+
 def draft_has_forbidden_em_dash(
     draft_body: str,
     *,
@@ -363,7 +528,24 @@ class SelfCorrectionModule:
             draft_body=draft_body,
             approved_timeline_paragraph=approved_para,
         )
-        return _enforce_em_dash_verdict(verdict, draft_body=draft_body)
+        verdict = _enforce_em_dash_verdict(verdict, draft_body=draft_body)
+
+        # Spec v2 deterministic post-checks. Order matters: hidden-cost and
+        # floor-breach escalate immediately; phone-call-threshold and ROI/CLV
+        # downgrade pass→fix.
+        verdict = _hidden_cost_language_check(verdict, draft_body=draft_body)
+        verdict = _floor_breach_check(
+            verdict,
+            draft_body=draft_body,
+            commercial_snapshot=commercial_snapshot,
+        )
+        verdict = _phone_call_threshold_violation_check(
+            verdict,
+            draft_body=draft_body,
+            commercial_snapshot=commercial_snapshot,
+        )
+        verdict = _roi_clv_language_check(verdict, draft_body=draft_body)
+        return verdict
 
 
 def make_anthropic_client(

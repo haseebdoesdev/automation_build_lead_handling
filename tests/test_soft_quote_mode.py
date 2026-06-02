@@ -1,17 +1,24 @@
-"""Tests for soft-quote mode (Section 17)."""
+"""Soft-quote mode tests for the spec v2 industry-based engine.
+
+Soft-quote mode (preserved from v7 Section 17) returns a band-based range,
+disables negotiation, and escalates on any pushback.
+"""
+
+from __future__ import annotations
 
 import pytest
 
 from reviewarmour.commercial import CommercialEngine
-from reviewarmour.models import Country, LeadRecord, RecencyProfile
+from reviewarmour.models import (
+    Country,
+    GBPCategory,
+    LeadRecord,
+    PricingTier,
+    RecencyProfile,
+)
 
 
-@pytest.fixture
-def engine():
-    return CommercialEngine()
-
-
-def _lead(soft_quote: bool = False, **kw) -> LeadRecord:
+def _lead(soft_quote: bool = False, **kwargs) -> LeadRecord:
     defaults = dict(
         lead_id="sq-1",
         first_name="Test",
@@ -24,94 +31,91 @@ def _lead(soft_quote: bool = False, **kw) -> LeadRecord:
         review_count=2,
         recency_profile=RecencyProfile.ALL_UNDER_1_MONTH,
         business_category="plumbing",
+        gbp_category=GBPCategory.PLUMBER,
         soft_quote_mode=soft_quote,
     )
-    defaults.update(kw)
+    defaults.update(kwargs)
     return LeadRecord(**defaults)
 
 
 class TestSoftQuoteRange:
-    """Soft-quote mode returns a range instead of a specific number."""
-
-    def test_returns_range(self, engine):
+    def test_returns_band_range(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=True)
+        r = eng.evaluate_pricing(lead, wants_price=True)
         assert r.soft_quote_mode is True
-        assert r.soft_quote_range is not None
-        low, high = r.soft_quote_range
-        assert low < high
-        assert high == r.opening
+        # Plumber T3 small band is $330-$370
+        assert r.soft_quote_range == (330, 370)
+        assert r.authorized_quote_usd_per_review == 370  # quoted = high end of range
 
-    def test_us1_range(self, engine):
+    def test_can_quote_true_in_soft_mode(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=True)
-        assert r.tier_id == "US-1"
-        assert r.soft_quote_range == (400, 450)  # neg_2=400, opening=450
-
-    def test_ca1_range(self, engine):
-        lead = _lead(soft_quote=True, country=Country.CA)
-        r = engine.evaluate_pricing(lead, wants_price=True)
-        assert r.tier_id == "CA-1"
-        assert r.soft_quote_range == (275, 375)  # neg_2=275, opening=375
-
-    def test_can_quote_true(self, engine):
-        lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=True)
+        r = eng.evaluate_pricing(lead, wants_price=True)
         assert r.can_quote is True
-        assert r.authorized_quote_usd_per_review == r.opening
+
+    def test_t1_soft_quote_returns_t1_band(self) -> None:
+        eng = CommercialEngine()
+        lead = _lead(soft_quote=True, gbp_category=GBPCategory.DENTIST)
+        r = eng.evaluate_pricing(lead, wants_price=True)
+        assert r.tier == PricingTier.T1
+        assert r.soft_quote_range == (480, 530)
 
 
 class TestSoftQuoteNoNegotiation:
-    """Soft-quote mode: pushback escalates immediately, no negotiation."""
-
-    def test_pushback_escalates(self, engine):
+    def test_pushback_escalates(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True, negotiation_step=1)
-        r = engine.evaluate_pricing(lead, wants_price=True)
+        r = eng.evaluate_pricing(lead, wants_price=True)
         assert r.escalate is True
         assert "pushback" in r.escalation_reason.lower() or "soft" in r.escalation_reason.lower()
 
-    def test_below_floor_escalates(self, engine):
+    def test_below_floor_escalates(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=True, lead_requested_price_below_floor=True)
+        r = eng.evaluate_pricing(
+            lead, wants_price=True, lead_requested_price_below_floor=True
+        )
         assert r.escalate is True
 
 
 class TestSoftQuoteGBPRequired:
-    """Soft-quote mode still requires GBP link before quoting."""
-
-    def test_no_gbp_requests_link(self, engine):
+    def test_no_gbp_requests_link(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True, gbp_link=None)
-        r = engine.evaluate_pricing(lead, wants_price=True)
+        r = eng.evaluate_pricing(lead, wants_price=True)
         assert r.request_gbp_first is True
         assert r.can_quote is False
 
 
 class TestSoftQuoteCommercialTurn:
-    """Soft-quote mode creates a commercial turn marker for stall detection."""
-
-    def test_commercial_turn_created(self, engine):
+    def test_commercial_turn_created_when_quoting(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=True)
+        r = eng.evaluate_pricing(lead, wants_price=True)
         assert r.commercial_turn is not None
 
-    def test_no_commercial_turn_when_not_quoting(self, engine):
+    def test_no_commercial_turn_when_not_quoting(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=True)
-        r = engine.evaluate_pricing(lead, wants_price=False)
-        # When soft_quote_mode is on but wants_price is False, falls through to normal path
+        r = eng.evaluate_pricing(lead, wants_price=False)
         assert r.commercial_turn is None
 
 
 class TestHardQuoteUnchanged:
-    """Hard-quote mode (default) is not affected by soft-quote changes."""
+    """Soft-quote toggle must not affect hard-quote behavior on the same data."""
 
-    def test_us1_opening(self, engine):
+    def test_hard_quote_uses_adaptive_price(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=False)
-        r = engine.evaluate_pricing(lead, wants_price=True)
-        assert r.authorized_quote_usd_per_review == 450
+        r = eng.evaluate_pricing(lead, wants_price=True, adaptive_price_usd=350)
         assert r.soft_quote_mode is False
         assert r.soft_quote_range is None
+        assert r.authorized_quote_usd_per_review == 350
 
-    def test_negotiation_works(self, engine):
+    def test_hard_quote_negotiation_works(self) -> None:
+        eng = CommercialEngine()
         lead = _lead(soft_quote=False, negotiation_step=1)
-        r = engine.evaluate_pricing(lead, wants_price=True)
-        assert r.authorized_quote_usd_per_review == 425  # neg_1
+        r = eng.evaluate_pricing(lead, wants_price=True, adaptive_price_usd=350)
+        # Step 1 ≈ 12.5% off → ~306
+        assert r.authorized_quote_usd_per_review == round(350 * 0.875)
