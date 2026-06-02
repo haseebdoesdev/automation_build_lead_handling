@@ -59,15 +59,25 @@ class Lead(Base):
     assigned_salesman: Mapped[str | None] = mapped_column(String(100), nullable=True)
     lead_status: Mapped[str] = mapped_column(String(40), default="captured")
 
-    # Commercial
+    # Commercial (spec v2 — industry-based)
     quoted_price_usd: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quote_basis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    lead_cost_estimated_usd: Mapped[int] = mapped_column(Integer, default=50)
-    hidden_margin_estimate_usd: Mapped[float | None] = mapped_column(
-        Float, nullable=True
-    )
     negotiation_step: Mapped[int] = mapped_column(Integer, default=0)
     negotiation_triggers: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
+    # Spec v2: industry-based pricing fields
+    gbp_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    pricing_tier: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    volume_bracket: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    reviews_image_content: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    reviews_under_one_month: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    phone_call_threshold_triggered: Mapped[bool] = mapped_column(
+        Boolean, default=False
+    )
+    salesman_recommended_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    adaptive_reasoning_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # AI state
     ai_conversation_state: Mapped[str] = mapped_column(

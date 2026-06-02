@@ -79,6 +79,39 @@ async def dispatch_to_salesman(lead_id: str, config: AppConfig) -> None:
             salesman_idx = (dispatch_num - 1) % len(salesmen)
             salesman_name = salesmen[salesman_idx]
 
+            # Pricing context from spec v2 — included in dispatch when known.
+            recommended_range_str = None
+            recommended_opening_str = None
+            total_deal_value_str = None
+            rr = getattr(lead_row, "salesman_recommended_range", None)
+            if rr and isinstance(rr, dict):
+                low, high = rr.get("low"), rr.get("high")
+                if low and high:
+                    recommended_range_str = f"${low}-${high}/review"
+                opening = rr.get("opening")
+                if opening:
+                    recommended_opening_str = f"${opening}/review"
+                    if lead_row.review_count:
+                        total_deal_value_str = (
+                            f"${opening * max(lead_row.review_count, 1)} total "
+                            f"({lead_row.review_count} reviews)"
+                        )
+
+            review_breakdown = None
+            img_flags = getattr(lead_row, "reviews_image_content", None) or []
+            recent_flags = getattr(lead_row, "reviews_under_one_month", None) or []
+            if img_flags or recent_flags:
+                n = max(len(img_flags), len(recent_flags))
+                parts = []
+                for i in range(n):
+                    img = img_flags[i] if i < len(img_flags) else False
+                    recent = recent_flags[i] if i < len(recent_flags) else False
+                    parts.append(
+                        f"R{i+1}: {'<1mo' if recent else '>1mo'}, "
+                        f"{'image' if img else 'text-only'}"
+                    )
+                review_breakdown = "; ".join(parts)
+
             lead_data = {
                 "name": f"{lead_row.first_name} {lead_row.last_name}",
                 "business": lead_row.business_name,
@@ -88,6 +121,21 @@ async def dispatch_to_salesman(lead_id: str, config: AppConfig) -> None:
                 "gbp_link": lead_row.gbp_link or "N/A",
                 "urgency": lead_row.urgency_flag or "N/A",
                 "source": lead_row.lead_source,
+                # Spec v2 pricing context
+                "pricing_tier": getattr(lead_row, "pricing_tier", None) or "N/A",
+                "gbp_category": getattr(lead_row, "gbp_category", None) or "N/A",
+                "volume_bracket": getattr(lead_row, "volume_bracket", None) or "N/A",
+                "review_count": lead_row.review_count,
+                "recommended_range": recommended_range_str or "N/A",
+                "recommended_opening": recommended_opening_str or "N/A",
+                "total_deal_value": total_deal_value_str or "N/A",
+                "review_breakdown": review_breakdown or "N/A",
+                "phone_call_routed": bool(
+                    getattr(lead_row, "phone_call_threshold_triggered", False)
+                ),
+                "reasoning_summary": (
+                    getattr(lead_row, "adaptive_reasoning_summary", None) or "N/A"
+                ),
             }
 
             dispatch = SalesmanDispatch(

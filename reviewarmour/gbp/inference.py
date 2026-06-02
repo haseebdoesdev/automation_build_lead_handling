@@ -83,6 +83,7 @@ def inspection_dict_to_lead_field_updates(inspection: dict[str, Any]) -> dict[st
     """Map ``inspect_maps_place`` result into ``LeadRecord`` / form keys.
 
     Only includes keys when inference is confident enough; CRM may override.
+    Spec v2: also emits per-review image flags and a mapped GBPCategory.
     """
     out: dict[str, Any] = {}
     if inspection.get("status") != "success":
@@ -102,17 +103,89 @@ def inspection_dict_to_lead_field_updates(inspection: dict[str, Any]) -> dict[st
     cats = inspection.get("category_hints")
     if isinstance(cats, list) and cats:
         out["business_category"] = str(cats[0])
+        mapped = map_text_to_gbp_category(str(cats[0]))
+        if mapped:
+            out["gbp_category"] = mapped
+
+    # Per-review flags for the adaptive reasoning layer.
+    reviews = inspection.get("reviews") or []
+    if reviews:
+        out["reviews_image_content"] = [bool(r.get("has_images")) for r in reviews]
+        # Best-effort: relative_review_age_days exists in this module
+        recent_flags: list[bool] = []
+        for r in reviews:
+            days = relative_review_age_days(r.get("published_at"))
+            recent_flags.append(days is not None and days <= 31)
+        out["reviews_under_one_month"] = recent_flags
 
     return out
 
 
-def guess_category_from_business_name(name: str) -> Optional[str]:
-    """Very light keyword hints for high-ticket / tier — not authoritative."""
-    n = name.lower()
-    if any(k in n for k in ("dental", "dentist", "orthodont", "smile ")):
-        return "dental"
-    if any(k in n for k in ("law", "legal", "attorney", "lawyer")):
-        return "legal"
-    if any(k in n for k in ("contractor", "roofing", "hvac", "plumb")):
-        return "contractor"
+# Spec v2 Section 3 — keyword → GBPCategory enum-value map. Free-text Google
+# Business categories and business-name hints fall through this table.
+_CATEGORY_KEYWORD_MAP: list[tuple[tuple[str, ...], str]] = [
+    # Medical & Healthcare
+    (("plastic surgeon", "cosmetic surgeon"), "plastic_surgeon"),
+    (("dentist", "dental", "orthodont", "endodont", "periodont", "smile "), "dentist"),
+    (("medical clinic", "urgent care", "walk-in clinic"), "medical_clinic"),
+    (("chiropractor", "chiropractic"), "chiropractor"),
+    (("pharmacy", "drugstore"), "pharmacy"),
+    # Professional & Financial
+    (("law firm", "lawyer", "attorney", "legal services", "personal injury"), "law_firm"),
+    (("accountant", "accounting", "cpa", "tax preparation"), "accounting_firm"),
+    (("real estate", "realtor", "realty"), "real_estate_agency"),
+    (("insurance",), "insurance_agency"),
+    # Home & Field Services
+    (("hvac", "heating", "air conditioning", "furnace"), "hvac_contractor"),
+    (("roof", "roofer", "roofing"), "roofing_contractor"),
+    (("electric", "electrician"), "electrician"),
+    (("plumb",), "plumber"),
+    (("moving", "movers"), "moving_company"),
+    (("paving", "asphalt", "driveway"), "paving_contractor"),
+    (("landscap", "lawn care", "lawn service"), "landscaper"),
+    # Automotive
+    (("car dealership", "auto dealer", "dealership"), "car_dealership"),
+    (("auto repair", "mechanic", "car repair", "auto service"), "auto_repair"),
+    (("auto detail", "car detail"), "auto_detailing"),
+    (("car wash",), "car_wash"),
+    # Beauty / Wellness / Fitness
+    (("med spa", "medical spa"), "med_spa"),
+    (("gym", "fitness", "crossfit"), "fitness_center"),
+    (("nail salon", "nail bar"), "nail_salon"),
+    (("hair salon", "barber", "beauty salon", "hair stylist"), "beauty_salon"),
+    # Hospitality & Food
+    (("hotel", "motel", "inn", "resort"), "hotel"),
+    (("restaurant", "diner", "bistro", "eatery"), "restaurant"),
+    (("coffee", "cafe", "espresso"), "coffee_shop"),
+    (("bakery",), "bakery"),
+    # Retail
+    (("electronics store", "computer store"), "electronics_store"),
+    (("furniture",), "furniture_store"),
+    (("clothing store", "apparel", "boutique"), "clothing_store"),
+    (("grocery", "supermarket"), "grocery_store"),
+]
+
+
+def map_text_to_gbp_category(text: str) -> Optional[str]:
+    """Map a free-text category or business-name hint to a GBPCategory enum value.
+
+    Returns the enum value (str) or None if nothing matches. The result can be
+    fed directly into ``GBPCategory(...)`` in the commercial engine. Unmapped
+    leads default to T3 via the engine's fallback.
+    """
+    if not text:
+        return None
+    n = text.lower()
+    for keywords, cat_value in _CATEGORY_KEYWORD_MAP:
+        for k in keywords:
+            if k in n:
+                return cat_value
     return None
+
+
+def guess_category_from_business_name(name: str) -> Optional[str]:
+    """Map a business name to a GBPCategory enum value, or None.
+
+    Expanded from v7's 3 categories (dental/legal/contractor) to ~30 per spec v2.
+    """
+    return map_text_to_gbp_category(name)

@@ -37,6 +37,7 @@ from reviewarmour.models import (
     SelfCorrectionAttemptLog,
 )
 from reviewarmour.prompt_templates import (
+    ADAPTIVE_PRICE_SELECTOR_SYSTEM,
     APPROVED_TIMELINE_PARAGRAPHS,
     COMMERCIAL_ENGINE_TURN_SYSTEM,
     CONVERSATION_SYSTEM,
@@ -411,6 +412,130 @@ def _validate_outbound_draft_payload(data: dict[str, Any]) -> OutboundDraft:
         subject=subject,
         body=body,
     )
+
+
+# -----------------------------------------------------------------------------
+# Adaptive Price Selector (spec v2 Section 6)
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class AdaptivePriceResult:
+    """LLM-chosen price + reasoning for the engine to validate."""
+
+    selected_price_usd: int
+    lead_tone: str
+    engagement: str
+    reasoning_summary: str
+
+    def to_adaptive_inputs(self) -> dict[str, Any]:
+        return {
+            "selected_price_usd": self.selected_price_usd,
+            "lead_tone": self.lead_tone,
+            "engagement": self.engagement,
+            "reasoning_summary": self.reasoning_summary,
+        }
+
+
+class AdaptivePriceSelector:
+    """Short Claude call that picks the per-review price within the authorized band.
+
+    Output is validated by ``CommercialEngine.evaluate_pricing()``: if the LLM
+    returns a price outside the band or below floor, the engine escalates and
+    the pipeline can retry by re-prompting with the violation reason in
+    ``operator_directive`` (handled by callers).
+    """
+
+    _VALID_TONES = ("cooperative", "price_sensitive", "urgent", "noncommittal")
+    _VALID_ENGAGEMENT = ("high", "medium", "low")
+
+    def __init__(
+        self,
+        client: AnthropicMessagesClient,
+        *,
+        runtime: Optional[LLMRuntime] = None,
+        system_prompt: str = ADAPTIVE_PRICE_SELECTOR_SYSTEM,
+    ) -> None:
+        if client is None:
+            raise ConfigError("AdaptivePriceSelector requires an Anthropic client")
+        self._client = client
+        self._runtime = runtime or LLMRuntime()
+        self._system = system_prompt
+
+    def select(
+        self,
+        *,
+        lead: LeadRecord,
+        transcript: list[dict[str, Any]],
+        tier: str,
+        range_low_usd: int,
+        range_high_usd: int,
+        floor_usd: int,
+        retry_reason: Optional[str] = None,
+    ) -> AdaptivePriceResult:
+        tail = transcript[-8:] if len(transcript) > 8 else transcript
+        payload = {
+            "tier": tier,
+            "gbp_category": lead.gbp_category.value if lead.gbp_category else None,
+            "volume_bracket": lead.volume_bracket().value,
+            "review_count": lead.review_count,
+            "range_low_usd": range_low_usd,
+            "range_high_usd": range_high_usd,
+            "floor_usd": floor_usd,
+            "negotiation_step": lead.negotiation_step,
+            "reviews_image_content": list(lead.reviews_image_content),
+            "reviews_under_one_month": list(lead.reviews_under_one_month),
+            "recency_profile": lead.recency_profile.value,
+            "lead_tone_hint": lead.lead_tone.value if lead.lead_tone else None,
+            "engagement_hint": (
+                lead.engagement_level.value if lead.engagement_level else None
+            ),
+            "business_name": lead.business_name,
+            "recent_transcript_tail": tail,
+            "retry_reason": retry_reason,
+        }
+        data = _call_claude_for_json(
+            client=self._client,
+            runtime=self._runtime,
+            system=self._system,
+            user_payload=json.dumps(payload, ensure_ascii=False),
+            max_tokens=512,
+        )
+        return self._validate(data, range_low_usd, range_high_usd, floor_usd)
+
+    def _validate(
+        self,
+        data: dict[str, Any],
+        range_low: int,
+        range_high: int,
+        floor: int,
+    ) -> AdaptivePriceResult:
+        price = data.get("selected_price_usd")
+        if not isinstance(price, int) or isinstance(price, bool):
+            try:
+                price = int(price)
+            except (TypeError, ValueError):
+                raise LLMResponseError(
+                    f"AdaptivePriceSelector returned non-integer price: {price!r}"
+                )
+
+        tone = str(data.get("lead_tone") or "cooperative").lower()
+        if tone not in self._VALID_TONES:
+            tone = "cooperative"
+        engagement = str(data.get("engagement") or "medium").lower()
+        if engagement not in self._VALID_ENGAGEMENT:
+            engagement = "medium"
+
+        reasoning = str(data.get("reasoning_summary") or "").strip()
+        if len(reasoning) > 240:
+            reasoning = reasoning[:237] + "..."
+
+        return AdaptivePriceResult(
+            selected_price_usd=price,
+            lead_tone=tone,
+            engagement=engagement,
+            reasoning_summary=reasoning,
+        )
 
 
 class ConversationModule:
@@ -922,21 +1047,32 @@ class OutboundPipeline:
 
     MAX_FIX_RETRIES = 2
 
+    # Max number of times the engine re-prompts the adaptive selector on an
+    # out-of-band / below-floor price before giving up and using band midpoint.
+    MAX_ADAPTIVE_RETRIES = 2
+
     def __init__(
         self,
         *,
         conversation: ConversationModule,
         self_correction: SelfCorrectionModule,
         commercial_engine: Optional[CommercialEngine] = None,
+        adaptive_price_selector: Optional[AdaptivePriceSelector] = None,
         now_fn: Callable[[], datetime] | None = None,
         use_llm_quote_acceptance: bool = True,
         use_llm_commercial_turn: bool = True,
+        use_adaptive_price_selector: bool = True,
     ) -> None:
         """
         Args:
+            adaptive_price_selector: Spec v2 — Claude call that picks the
+                per-review price within the tier band. If None and
+                ``use_adaptive_price_selector`` is True, one is constructed
+                from the same client/runtime as ``conversation``.
             use_llm_quote_acceptance: If True, quote acceptance uses
-                :meth:`ConversationModule.detect_quote_acceptance_llm` only. If False,
-                uses :func:`acceptance_signal` (deterministic; for tests without an LLM).
+                :meth:`ConversationModule.detect_quote_acceptance_llm` only.
+            use_adaptive_price_selector: When False, the engine falls back to
+                its deterministic band-midpoint price (faster for tests).
         """
         self._conversation = conversation
         self._sc = self_correction
@@ -944,6 +1080,112 @@ class OutboundPipeline:
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
         self._use_llm_quote_acceptance = use_llm_quote_acceptance
         self._use_llm_commercial_turn = use_llm_commercial_turn
+        self._use_adaptive_price_selector = use_adaptive_price_selector
+
+        if adaptive_price_selector is not None:
+            self._adaptive_selector: Optional[AdaptivePriceSelector] = adaptive_price_selector
+        elif use_adaptive_price_selector:
+            # Share the conversation module's Anthropic client + runtime.
+            self._adaptive_selector = AdaptivePriceSelector(
+                client=conversation._client,
+                runtime=conversation._runtime,
+            )
+        else:
+            self._adaptive_selector = None
+
+    # ---- adaptive selector ----
+
+    def _run_adaptive_selector_if_eligible(
+        self,
+        lead: LeadRecord,
+        transcript: list[dict[str, Any]],
+    ) -> tuple[Optional[int], dict[str, Any], str]:
+        """Return (adaptive_price_usd, adaptive_inputs, reasoning_summary).
+
+        Eligibility:
+          - selector is enabled
+          - lead.gbp_category is set (otherwise engine asks for category)
+          - lead.ai_quote_allowed is True
+          - soft-quote mode is off (band-based range supersedes adaptive)
+
+        Retry policy: on out-of-band / below-floor / non-integer responses,
+        re-prompt up to ``MAX_ADAPTIVE_RETRIES`` times with a ``retry_reason``.
+        On exhaustion, return (None, {...}, "") and let the engine midpoint.
+        """
+        if self._adaptive_selector is None:
+            return None, {}, ""
+        if lead.gbp_category is None:
+            return None, {}, ""
+        if not lead.ai_quote_allowed:
+            return None, {}, ""
+        if lead.soft_quote_mode:
+            return None, {}, ""
+
+        # Resolve the band the engine will validate against. Mirror commercial.py.
+        from reviewarmour.commercial import get_volume_band
+
+        config, band = get_volume_band(lead.gbp_category, lead.review_count)
+
+        retry_reason: Optional[str] = None
+        for attempt in range(self.MAX_ADAPTIVE_RETRIES + 1):
+            try:
+                result = self._adaptive_selector.select(
+                    lead=lead,
+                    transcript=transcript,
+                    tier=config.tier.value,
+                    range_low_usd=band.low_usd,
+                    range_high_usd=band.high_usd,
+                    floor_usd=config.floor_usd,
+                    retry_reason=retry_reason,
+                )
+            except Exception as e:
+                logger.warning(
+                    "AdaptivePriceSelector error for lead %s (attempt %d): %s",
+                    lead.lead_id, attempt + 1, e,
+                )
+                return None, {"selector_error": str(e)}, ""
+
+            price = result.selected_price_usd
+            in_band = band.low_usd <= price <= band.high_usd
+            above_floor = price >= config.floor_usd
+
+            # T1 written-exception: also accept floor..$450 when conditions are met.
+            from reviewarmour.commercial import T1_WRITTEN_EXCEPTION_CEILING_USD
+            t1_exception_ok = (
+                config.tier.value == "T1"
+                and lead.review_count <= 2
+                and lead.all_reviews_image_or_recent()
+                and config.floor_usd <= price <= T1_WRITTEN_EXCEPTION_CEILING_USD
+            )
+
+            if (in_band or t1_exception_ok) and above_floor:
+                logger.info(
+                    "AdaptivePriceSelector: lead %s tier=%s band=$%d-$%d -> $%d (%s)",
+                    lead.lead_id, config.tier.value, band.low_usd, band.high_usd,
+                    price, result.lead_tone,
+                )
+                return price, result.to_adaptive_inputs(), result.reasoning_summary
+
+            retry_reason = (
+                f"Your previous response selected ${price} which is outside the "
+                f"allowed band ${band.low_usd}-${band.high_usd} or below floor "
+                f"${config.floor_usd}. Pick a new integer per-review price strictly "
+                f"within ${band.low_usd}-${band.high_usd} (or, for T1 exception, "
+                f"${config.floor_usd}-$450 only when review_count <= 2 and every "
+                f"review is image-or-under-1-month)."
+            )
+            logger.info(
+                "AdaptivePriceSelector retry %d for lead %s: %s",
+                attempt + 1, lead.lead_id, retry_reason,
+            )
+
+        # All retries exhausted — return None so the engine midpoints.
+        logger.warning(
+            "AdaptivePriceSelector exhausted %d retries for lead %s; "
+            "falling back to band midpoint",
+            self.MAX_ADAPTIVE_RETRIES, lead.lead_id,
+        )
+        return None, {"selector_retries_exhausted": True}, ""
 
     # ---- public API ----
 
@@ -1124,9 +1366,19 @@ class OutboundPipeline:
         # 3. Commercial reasoning, only on pricing turns (explicit flag or inbound asks for price).
         commercial: Optional[CommercialResult] = None
         if effective_wants_price:
+            # Spec v2 Section 6: run the LLM adaptive selector first when the
+            # lead has enough info for the engine to validate a band. The engine
+            # falls back to band midpoint if the selector is disabled or returns
+            # an out-of-band price across all retries.
+            adaptive_price, adaptive_inputs, adaptive_summary = (
+                self._run_adaptive_selector_if_eligible(lead, draft_transcript)
+            )
             commercial = self._commercial.evaluate_pricing(
                 lead,
                 wants_price=True,
+                adaptive_price_usd=adaptive_price,
+                reasoning_summary=adaptive_summary,
+                adaptive_inputs=adaptive_inputs,
                 lead_requested_price_below_floor=lead_requested_price_below_floor,
                 now=now,
             )

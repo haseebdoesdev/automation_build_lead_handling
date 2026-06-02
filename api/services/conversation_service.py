@@ -10,7 +10,23 @@ logger = logging.getLogger("reviewarmour.api.conversation")
 
 def _build_lead_record(lead_row) -> "reviewarmour.models.LeadRecord":
     """Convert a DB Lead row into a reviewarmour LeadRecord for the AI core."""
-    from reviewarmour.models import Channel, Country, LeadRecord, RecencyProfile
+    from reviewarmour.models import (
+        Country,
+        GBPCategory,
+        LeadRecord,
+        RecencyProfile,
+    )
+
+    gbp_cat = None
+    raw_cat = getattr(lead_row, "gbp_category", None)
+    if raw_cat:
+        try:
+            gbp_cat = GBPCategory(raw_cat)
+        except ValueError:
+            gbp_cat = None
+
+    image_flags = getattr(lead_row, "reviews_image_content", None) or []
+    recent_flags = getattr(lead_row, "reviews_under_one_month", None) or []
 
     return LeadRecord(
         lead_id=str(lead_row.id),
@@ -27,6 +43,9 @@ def _build_lead_record(lead_row) -> "reviewarmour.models.LeadRecord":
         negotiation_step=lead_row.negotiation_step,
         ai_quote_allowed=lead_row.ai_quote_allowed,
         soft_quote_mode=lead_row.soft_quote_mode,
+        gbp_category=gbp_cat,
+        reviews_image_content=list(image_flags),
+        reviews_under_one_month=list(recent_flags),
     )
 
 
@@ -282,16 +301,37 @@ async def handle_inbound_reply(
                         )
                     )
 
-                # Sync negotiation state back to DB
+                # Sync negotiation state + adaptive-pricing context back to DB
                 if hasattr(pipeline_result, "commercial_result") and pipeline_result.commercial_result:
                     cr = pipeline_result.commercial_result
                     lead_row.quoted_price_usd = cr.authorized_quote_usd_per_review
                     lead_row.negotiation_step = cr.negotiation_step
                     lead_row.quote_basis = {
-                        "tier": cr.tier_id,
-                        "opening": cr.opening,
+                        "tier": cr.tier.value,
+                        "gbp_category": cr.gbp_category.value if cr.gbp_category else None,
+                        "volume_bracket": cr.volume_bracket.value,
+                        "range_low": cr.range_low_usd,
+                        "range_high": cr.range_high_usd,
+                        "floor": cr.floor_usd,
                         "negotiation_step": cr.negotiation_step,
+                        "reasoning_summary": cr.reasoning_summary,
                     }
+                    # Spec v2 fields
+                    lead_row.pricing_tier = cr.tier.value
+                    if cr.gbp_category:
+                        lead_row.gbp_category = cr.gbp_category.value
+                    lead_row.volume_bracket = cr.volume_bracket.value
+                    lead_row.phone_call_threshold_triggered = (
+                        cr.phone_call_threshold_triggered
+                    )
+                    if cr.salesman_recommended_range:
+                        lead_row.salesman_recommended_range = {
+                            "low": cr.salesman_recommended_range[0],
+                            "high": cr.salesman_recommended_range[1],
+                            "opening": cr.salesman_recommended_opening_usd,
+                        }
+                    if cr.reasoning_summary:
+                        lead_row.adaptive_reasoning_summary = cr.reasoning_summary
 
                 # Quote acceptance → Slack handoff (Section 13)
                 if is_acceptance and lead_row.quoted_price_usd:
