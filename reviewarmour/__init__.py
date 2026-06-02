@@ -40,12 +40,16 @@ from reviewarmour.errors import (
     ReviewArmourError,
 )
 from reviewarmour.models import (
+    CallOutcome,
     Channel,
     CommercialTurnMarker,
     Country,
     LeadRecord,
+    LeadStatus,
     NegotiationTriggerLogEntry,
     RecencyProfile,
+    RouteDecision,
+    ScheduledPostCallTouch,
     SelfCorrectionAttemptLog,
 )
 from reviewarmour.followup_cadence import (
@@ -54,6 +58,9 @@ from reviewarmour.followup_cadence import (
     build_morning_queue_brief,
     queue_priority_rank,
     schedule_nurture_follow_ups,
+    schedule_post_call_follow_ups,
+    schedule_post_call_standard,
+    schedule_post_call_accelerated,
 )
 from reviewarmour.scheduling import defer_sunday_touch_to_monday_8am_est
 from reviewarmour.self_correction import (
@@ -65,6 +72,7 @@ from reviewarmour.self_correction import (
 from reviewarmour.settings import LLMRuntime
 
 __all__ = [
+    "CallOutcome",
     "Channel",
     "CommercialEngine",
     "CommercialPolicyError",
@@ -81,12 +89,14 @@ __all__ = [
     "LLMRuntime",
     "LLMTransportError",
     "LeadRecord",
+    "LeadStatus",
     "NegotiationTriggerLogEntry",
     "OutboundDraft",
     "OutboundPipeline",
     "PipelineResult",
     "RecencyProfile",
     "ReviewArmourError",
+    "RouteDecision",
     "SelfCorrectionAttemptLog",
     "SelfCorrectionModule",
     "SelfCorrectionVerdict",
@@ -94,9 +104,13 @@ __all__ = [
     "check_stall",
     "QUEUE_STATUS_PRIORITY",
     "ScheduledNurtureFollowUp",
+    "ScheduledPostCallTouch",
     "build_morning_queue_brief",
     "defer_sunday_touch_to_monday_8am_est",
     "queue_priority_rank",
+    "schedule_post_call_follow_ups",
+    "schedule_post_call_standard",
+    "schedule_post_call_accelerated",
     "schedule_nurture_follow_ups",
     "effective_quote_context",
     "evaluate_post_quote_stall",

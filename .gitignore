@@ -1,0 +1,37 @@
+# Auth / secrets — never commit these
+patchright_maps_auth.json
+*.auth.json
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+*.xml
+
+# Debug artifacts
+debug-artifacts/
+debug_gbp*.png
+debug_gbp*.html
+debug_gbp.py
+debug_with_auth.png
+
+# IDE
+.vscode/
+.idea/
+
+# DB
+*.db
+*.sqlite3
+
+# Docker
+*.log
