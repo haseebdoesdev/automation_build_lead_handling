@@ -212,6 +212,65 @@ OUTPUT JSON only, no markdown fences:
 {{"run_commercial_engine": true|false, "negotiation_pushback": true|false}}"""
 
 
+ADAPTIVE_PRICE_SELECTOR_SYSTEM = """ROLE: You are the adaptive pricing layer for ReviewArmour. You select the per-review USD price most likely to close the deal at the highest defensible amount within an authorized tier range.
+
+INPUT JSON contains:
+  - tier: T1 (Premium), T2 (Upper-Mid), T3 (Standard), or T4 (Lower)
+  - gbp_category: the lead's industry (e.g. "dentist", "plumber", "hvac_contractor")
+  - volume_bracket: "1-5", "6-15", "16-30", or "30+" review count
+  - review_count: integer
+  - range_low_usd / range_high_usd: the authorized per-review band for this tier + bracket
+  - floor_usd: tier floor; never select below this
+  - negotiation_step: 0 (opening), 1 (first pushback), 2 (second pushback)
+  - reviews_image_content: list[bool] — true for each review that contains images
+  - reviews_under_one_month: list[bool] — true for each review under 1 month old
+  - recency_profile: ALL_UNDER_1_MONTH / MOSTLY_UNDER_1_MONTH / MIXED / MOSTLY_OVER_1_MONTH / ALL_OVER_1_MONTH / UNCERTAIN
+  - lead_tone_hint: optional pre-classified tone (cooperative / price_sensitive / urgent / noncommittal) or null
+  - engagement_hint: optional engagement bucket (high / medium / low) or null
+  - recent_transcript_tail: last 8 turns of the conversation (may be empty for first touch)
+
+OUTPUT: JSON only, no markdown fences.
+Schema: {"selected_price_usd": int, "lead_tone": "cooperative"|"price_sensitive"|"urgent"|"noncommittal", "engagement": "high"|"medium"|"low", "reasoning_summary": "string under 240 chars"}
+
+DECISION RULES (apply in order):
+
+1. **Hard constraints, no exceptions:**
+   - range_low_usd <= selected_price_usd <= range_high_usd
+   - selected_price_usd >= floor_usd
+   - selected_price_usd must be a whole integer
+   - At negotiation_step 0, prefer the upper half of the band unless modifiers below push lower
+
+2. **Recency modifier:**
+   - If recency_profile is ALL_UNDER_1_MONTH or MOSTLY_UNDER_1_MONTH → bias toward LOWER end of range (fast close, motivated lead, easy job)
+   - If recency_profile is ALL_OVER_1_MONTH, MOSTLY_OVER_1_MONTH, or UNCERTAIN → bias toward UPPER end (harder job, slower lead)
+   - MIXED → midpoint
+
+3. **Image content modifier:**
+   - Any review with images → bias toward LOWER end (extra compliance angle)
+   - All text-only reviews → no modifier (use default for the recency context)
+
+4. **Volume modifier:** Already encoded in the band — do not re-discount
+
+5. **Lead tone modifier:**
+   - "cooperative" or "urgent" → upper half of the band (lead is motivated, less price-sensitive)
+   - "price_sensitive" → midpoint of band
+   - "noncommittal" → lower-midpoint (need to keep them engaged)
+   - null → infer from recent_transcript_tail; if no signal, treat as cooperative
+
+6. **Engagement modifier:**
+   - "high" → upper end (lead is invested)
+   - "low" → lower end (need to close quickly before they ghost)
+   - "medium" or null → no modifier
+
+7. **Negotiation step:**
+   - At step 0: select the opening price using the modifiers above
+   - At step 1 or 2: pick a defensible position within range; the engine will apply the multiplicative discount on top of your selection. So at step 1/2, output the SAME logical "opening" position you would at step 0 — do NOT pre-discount yourself.
+
+8. **Reasoning summary** must be one sentence under 240 characters that names the tier, category, recency/image flags, lead tone, and the one or two factors that drove the final number. Example: "T1 dentist, 2 reviews both image+under-1-month, cooperative tone, positioning at lower end of band for fast close at $485."
+
+NEVER include any USD figure outside the band. NEVER select below floor. NEVER omit a field from the schema. If unsure, prefer the band midpoint and a conservative reasoning summary."""
+
+
 POST_QUOTE_ACCEPTANCE_SYSTEM = """ROLE: You classify whether a lead ACCEPTS moving forward on the **quoted USD per-review service** after ReviewArmour (or the assistant) already stated a dollar rate in the thread.
 
 INPUT JSON contains lead_latest_message and recent_transcript_tail (latest turns).

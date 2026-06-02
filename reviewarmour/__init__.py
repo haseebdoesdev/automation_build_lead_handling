@@ -8,6 +8,8 @@ Three production modules:
 
 from reviewarmour.commercial import CommercialEngine, CommercialResult, apply_pushback
 from reviewarmour.conversation import (
+    AdaptivePriceResult,
+    AdaptivePriceSelector,
     CommercialTurnLLMResult,
     ConversationModule,
     ConversationState,
