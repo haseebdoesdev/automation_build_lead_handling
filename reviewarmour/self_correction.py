@@ -183,6 +183,83 @@ def _draft_dollar_figures(draft_body: str) -> list[str]:
     return _USD_FIGURE_RE.findall(draft_body or "")
 
 
+# Spec v2 Section 13 + analysis Bug D: phone-route copy and any pricing copy
+# may not hedge with "for a profile like X" — that's the LLM's fall-back
+# pattern when SC tells it not to hedge. We strip it deterministically after
+# the SC verdict so the redrafter loop can converge instead of looping on the
+# same violation across all retries.
+# Spec v2 analysis Bug I: tightened from the original to require a clean
+# punctuation boundary, exclude newlines, and cap the inner match at 35 chars
+# (long enough for a business name + 1-2 words, short enough to never chew
+# into the next clause). The original ``[^,.]{1,60}`` greedy class was eating
+# benign text in Conv 37, producing broken copy like "...reviews wn, not before".
+_HEDGED_INTRO_RE = re.compile(
+    r"\bfor\s+(?:a\s+)?(?:profile|business(?:es)?|client(?:s)?|case|practice|"
+    r"company|customer)\s+like\s+[^\n,.]{1,35}[,.]\s*",
+    re.IGNORECASE,
+)
+
+
+def strip_forbidden_em_dashes(
+    draft_body: str,
+    *,
+    allowed_fragments: tuple[str, ...] = APPROVED_COPY_ALLOWING_EMDASH,
+) -> str:
+    """Replace em / en dashes with `", "` (comma + space) OUTSIDE approved blocks.
+
+    Spec v2 analysis Bug O: the LLM redrafter consistently re-emits em dashes
+    even after SC flags them, causing first-touch and reply drafts to sink to
+    human_queue. We strip them deterministically AFTER the drafter run so the
+    SC pass sees clean copy and the loop converges. The strip preserves the
+    handful of approved verbatim blocks that intentionally contain em dashes
+    (success_percentage_asked, pay-anchor) by temporarily masking them.
+
+    Examples:
+      "...pay-after-removal basis — no charge..."  -> "...pay-after-removal basis, no charge..."
+      "We deliver — and we hold the line."           -> "We deliver, and we hold the line."
+    """
+    if not draft_body or not _EMDASH_RE.search(draft_body):
+        return draft_body
+    # Mask approved fragments so their em dashes survive.
+    masked = draft_body
+    placeholders: list[tuple[str, str]] = []
+    for i, fragment in enumerate(allowed_fragments):
+        if fragment and fragment in masked:
+            token = f"\x00APPROVED_FRAG_{i}\x00"
+            masked = masked.replace(fragment, token)
+            placeholders.append((token, fragment))
+    # Replace em/en dashes outside approved fragments. We collapse surrounding
+    # spaces so the comma sits naturally.
+    cleaned = re.sub(r"\s*[—–]\s*", ", ", masked)
+    # Restore approved fragments verbatim.
+    for token, fragment in placeholders:
+        cleaned = cleaned.replace(token, fragment)
+    return cleaned
+
+
+def strip_hedged_pricing_intro(draft_body: str) -> str:
+    """Remove 'for a profile like X' / 'for a business like Y' hedges in place.
+
+    The LLM tends to re-emit these even after SC flags them. Deterministic
+    strip is the only reliable termination for that loop. We do not capitalize
+    the next sentence (the redrafter typically already wrote the rest of the
+    sentence to flow without the hedge, so dropping just the prefix produces
+    natural copy in practice).
+    """
+    if not draft_body:
+        return draft_body
+    cleaned = _HEDGED_INTRO_RE.sub("", draft_body)
+    # Collapse any double-spaces or leading whitespace introduced by the strip.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n[ \t]+", "\n", cleaned)
+    # Re-capitalize the first character of any sentence that now starts with
+    # a lowercase letter immediately after a sentence-terminating newline.
+    def _cap(m: re.Match[str]) -> str:
+        return m.group(1) + m.group(2).upper()
+    cleaned = re.sub(r"(^|\n\n)([a-z])", _cap, cleaned)
+    return cleaned
+
+
 def _phone_call_threshold_violation_check(
     verdict: SelfCorrectionVerdict,
     *,
@@ -355,6 +432,254 @@ def _enforce_em_dash_verdict(
     )
 
 
+# Spec v2 analysis Bug G: when the lead's latest inbound asks about timing
+# / hard guarantee and an approved timeline paragraph is set, the draft body
+# MUST contain that paragraph verbatim. The LLM SC sometimes accepts a
+# paraphrase; this deterministic pre-check downgrades pass->fix in that case.
+_TIMING_TOPIC_PATTERNS = (
+    re.compile(r"\bhow\s+(?:fast|quickly|long|soon)\b", re.IGNORECASE),
+    re.compile(r"\bwhen\s+(?:can|will|do)\b", re.IGNORECASE),
+    re.compile(r"\btimeline\b", re.IGNORECASE),
+    re.compile(r"\bcommit\s+to\b", re.IGNORECASE),
+    re.compile(r"\bguarantee\b", re.IGNORECASE),
+    re.compile(r"\bby\s+(?:next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.IGNORECASE),
+    re.compile(r"\bexpect\s+them\s+down\b", re.IGNORECASE),
+    re.compile(r"\bcome\s+down\b", re.IGNORECASE),
+)
+
+
+def _inbound_asks_timing(transcript: list[dict[str, Any]]) -> bool:
+    """True if the latest lead turn raises a timing / guarantee topic."""
+    for turn in reversed(transcript):
+        if turn.get("role") not in ("lead", "user"):
+            continue
+        body = turn.get("body") or turn.get("content") or ""
+        return any(p.search(body) for p in _TIMING_TOPIC_PATTERNS)
+    return False
+
+
+def _enforce_verbatim_timeline_paragraph(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    transcript: list[dict[str, Any]],
+    approved_timeline_paragraph: Optional[str],
+) -> SelfCorrectionVerdict:
+    """Spec v2 analysis Bug G: if the lead asked a timing question and an
+    approved paragraph was passed in, the draft body MUST contain it verbatim.
+    Otherwise we downgrade pass->fix so the redrafter pulls the verbatim string.
+    """
+    if not approved_timeline_paragraph:
+        return verdict
+    if not _inbound_asks_timing(transcript):
+        return verdict
+    body_norm = _collapse_whitespace(draft_body)
+    if approved_timeline_paragraph in body_norm:
+        return verdict
+    failed = list(verdict.failed_checks)
+    failed.append(
+        "timeline_language: lead asked timing/guarantee but draft does not "
+        "contain the verbatim approved_timeline_paragraph"
+    )
+    fixes = list(verdict.suggested_fixes)
+    fixes.append(
+        "Paste the approved_timeline_paragraph for the current timeline_framing_key "
+        "into the draft verbatim — no paraphrase."
+    )
+    new_verdict = "fix" if verdict.verdict == "pass" else verdict.verdict
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=fixes,
+        escalation_reason=verdict.escalation_reason,
+    )
+
+
+def _sanitize_methodology_verdict(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    approved_methodology_paragraphs: dict[str, str],
+) -> SelfCorrectionVerdict:
+    """Spec v2 analysis Bug J + L: drop scope / methodology_language failures
+    when the draft contains a verbatim approved METHODOLOGY paragraph.
+
+    The LLM SC sometimes flags the verbatim ``"...which is why our success
+    rate holds where it does"`` tail as an invented success claim, even though
+    it's part of the canonical METHODOLOGY general string.
+    """
+    if not approved_methodology_paragraphs:
+        return verdict
+    body_norm = _collapse_whitespace(draft_body)
+    present = any(
+        para and para in body_norm
+        for para in approved_methodology_paragraphs.values()
+    )
+    if not present:
+        return verdict
+    drop_prefixes = ("methodology_language:", "scope:", "success_rate:")
+    failed = [
+        f
+        for f in verdict.failed_checks
+        if not (
+            any(f.startswith(p) for p in drop_prefixes)
+            and (
+                "methodolog" in f.lower()
+                or "operational detail" in f.lower()
+                or "success rate" in f.lower()
+                or "policy violation" in f.lower()
+            )
+        )
+    ]
+    if len(failed) == len(verdict.failed_checks):
+        return verdict
+    if not failed:
+        return SelfCorrectionVerdict(
+            verdict="pass",
+            failed_checks=[],
+            suggested_fixes=[],
+            escalation_reason=None,
+        )
+    new_verdict = verdict.verdict
+    if new_verdict == "pass":
+        new_verdict = "fix"
+    new_reason = verdict.escalation_reason
+    if new_verdict == "escalate" and not any(
+        f.startswith("hidden_cost_leak") or f.startswith("floor_breach")
+        for f in failed
+    ):
+        new_verdict = "fix"
+        new_reason = None
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=verdict.suggested_fixes,
+        escalation_reason=new_reason,
+    )
+
+
+def _sanitize_docusign_verdict(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    approved_docusign_line: str,
+) -> SelfCorrectionVerdict:
+    """Spec v2 analysis Bug K: drop scope failures that flag DocuSign /
+    contract-detail expansion when the approved one-liner is the substring.
+
+    The drafter tends to elaborate ("we send the removal brief via DocuSign,
+    you sign there") which triggers ``scope: contract beyond DocuSign line``
+    in SC. The expansion is fine as long as the approved one-liner is present
+    AND the word "contract" doesn't appear (the prompt already bans that).
+    """
+    if not approved_docusign_line:
+        return verdict
+    body_norm = _collapse_whitespace(draft_body)
+    if approved_docusign_line not in body_norm:
+        return verdict
+    # If the draft uses the banned word "contract" we leave the scope failure.
+    if re.search(r"\bcontract\b", draft_body, re.IGNORECASE):
+        return verdict
+    drop_prefixes = ("scope:",)
+    failed = [
+        f
+        for f in verdict.failed_checks
+        if not (
+            any(f.startswith(p) for p in drop_prefixes)
+            and (
+                "docusign" in f.lower()
+                or "contract" in f.lower()
+                or "agreement" in f.lower()
+                or "removal brief" in f.lower()
+            )
+        )
+    ]
+    if len(failed) == len(verdict.failed_checks):
+        return verdict
+    if not failed:
+        return SelfCorrectionVerdict(
+            verdict="pass",
+            failed_checks=[],
+            suggested_fixes=[],
+            escalation_reason=None,
+        )
+    new_verdict = verdict.verdict
+    if new_verdict == "pass":
+        new_verdict = "fix"
+    new_reason = verdict.escalation_reason
+    if new_verdict == "escalate" and not any(
+        f.startswith("hidden_cost_leak") or f.startswith("floor_breach")
+        for f in failed
+    ):
+        new_verdict = "fix"
+        new_reason = None
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=verdict.suggested_fixes,
+        escalation_reason=new_reason,
+    )
+
+
+def _sanitize_success_verdict(
+    verdict: SelfCorrectionVerdict,
+    *,
+    draft_body: str,
+    approved_success_paragraphs: dict[str, str],
+) -> SelfCorrectionVerdict:
+    """Drop spurious success_rate / scope failures when an approved SUCCESS
+    paragraph is present verbatim in the draft (spec v2 analysis Bug H).
+
+    The LLM SC sometimes flags 'high success rate' as an invented qualitative
+    claim even when the exact APPROVED_SUCCESS_GENERAL string is present. We
+    detect the verbatim substring and clear those failure kinds.
+    """
+    if not approved_success_paragraphs:
+        return verdict
+    body_norm = _collapse_whitespace(draft_body)
+    present = any(
+        para and para in body_norm for para in approved_success_paragraphs.values()
+    )
+    if not present:
+        return verdict
+    success_drop_prefixes = ("success_rate:", "scope:")
+    failed = [
+        f
+        for f in verdict.failed_checks
+        if not (
+            any(f.startswith(p) for p in success_drop_prefixes)
+            and ("success" in f.lower() or "high success rate" in f.lower())
+        )
+    ]
+    if len(failed) == len(verdict.failed_checks):
+        return verdict
+
+    if not failed:
+        return SelfCorrectionVerdict(
+            verdict="pass",
+            failed_checks=[],
+            suggested_fixes=[],
+            escalation_reason=None,
+        )
+    new_verdict = verdict.verdict
+    if new_verdict == "pass":
+        new_verdict = "fix"
+    # If we dropped enough to remove the escalation reason, demote escalate→fix.
+    new_reason = verdict.escalation_reason
+    if new_verdict == "escalate" and not any(
+        f.startswith("hidden_cost_leak") or f.startswith("floor_breach")
+        or f.startswith("scope:") for f in failed
+    ):
+        new_verdict = "fix"
+        new_reason = None
+    return SelfCorrectionVerdict(
+        verdict=new_verdict,
+        failed_checks=failed,
+        suggested_fixes=verdict.suggested_fixes,
+        escalation_reason=new_reason,
+    )
+
+
 def _sanitize_timeline_verdict(
     verdict: SelfCorrectionVerdict,
     *,
@@ -504,6 +829,14 @@ class SelfCorrectionModule:
         approved_para, framing_key = approved_timeline_paragraph_for_review(
             transcript, timeline_class
         )
+        # Spec v2 analysis Bug H + J + L + K: also surface the approved SUCCESS,
+        # METHODOLOGY, and DocuSign strings so SC can recognize them as
+        # verbatim allowlist when present.
+        from reviewarmour.prompt_templates import (
+            APPROVED_DOCUSIGN_LINE,
+            APPROVED_METHODOLOGY_PARAGRAPHS,
+            APPROVED_SUCCESS_PARAGRAPHS,
+        )
         payload = {
             "draft": {"subject": draft_subject, "body": draft_body, "channel": channel},
             "lead_record": lead_record,
@@ -512,6 +845,9 @@ class SelfCorrectionModule:
             "timeline_class": timeline_class,
             "timeline_framing_key": framing_key,
             "approved_timeline_paragraph": approved_para,
+            "approved_success_paragraphs": APPROVED_SUCCESS_PARAGRAPHS,
+            "approved_methodology_paragraphs": APPROVED_METHODOLOGY_PARAGRAPHS,
+            "approved_docusign_line": APPROVED_DOCUSIGN_LINE,
             "soft_quote_mode": soft_quote_mode,
             "gbp_inspection": gbp_inspection,
         }
@@ -527,6 +863,27 @@ class SelfCorrectionModule:
             verdict,
             draft_body=draft_body,
             approved_timeline_paragraph=approved_para,
+        )
+        verdict = _enforce_verbatim_timeline_paragraph(
+            verdict,
+            draft_body=draft_body,
+            transcript=transcript,
+            approved_timeline_paragraph=approved_para,
+        )
+        verdict = _sanitize_success_verdict(
+            verdict,
+            draft_body=draft_body,
+            approved_success_paragraphs=APPROVED_SUCCESS_PARAGRAPHS,
+        )
+        verdict = _sanitize_methodology_verdict(
+            verdict,
+            draft_body=draft_body,
+            approved_methodology_paragraphs=APPROVED_METHODOLOGY_PARAGRAPHS,
+        )
+        verdict = _sanitize_docusign_verdict(
+            verdict,
+            draft_body=draft_body,
+            approved_docusign_line=APPROVED_DOCUSIGN_LINE,
         )
         verdict = _enforce_em_dash_verdict(verdict, draft_body=draft_body)
 

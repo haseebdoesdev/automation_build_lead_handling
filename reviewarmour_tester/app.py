@@ -38,7 +38,13 @@ from reviewarmour.conversation import (
 )
 from reviewarmour.followup_cadence import schedule_nurture_follow_ups
 from reviewarmour.gbp import inspection_dict_to_lead_field_updates, run_inspect_gbp_sync
-from reviewarmour.models import Country, LeadRecord, RecencyProfile
+from reviewarmour.gbp.inference import map_text_to_gbp_category
+from reviewarmour.models import (
+    Country,
+    GBPCategory,
+    LeadRecord,
+    RecencyProfile,
+)
 from reviewarmour.self_correction import make_anthropic_client
 from reviewarmour_tester.inspect import describe_result, inspect_inbound, inspect_pipeline_result
 from reviewarmour_tester.session import TesterSession, pipeline_result_to_dict
@@ -89,13 +95,64 @@ def get_review_module() -> CustomerReviewRequestModule:
     return _review_module
 
 
+def _derive_recency_flags(recency_value: str, review_count: int) -> list[bool]:
+    """Derive per-review under-1-month flags from the lead's recency_profile.
+
+    Spec v2: the adaptive selector + T1 written exception depend on per-review
+    timing flags. Without them the engine cannot identify the exception path.
+    """
+    n = max(review_count, 1)
+    rv = (recency_value or "").lower()
+    if rv == RecencyProfile.ALL_UNDER_1_MONTH.value:
+        return [True] * n
+    if rv == RecencyProfile.ALL_OVER_1_MONTH.value:
+        return [False] * n
+    if rv == RecencyProfile.MOSTLY_UNDER_1_MONTH.value:
+        # Roughly 70% recent.
+        return [i < (n * 7 + 9) // 10 for i in range(n)]
+    if rv == RecencyProfile.MOSTLY_OVER_1_MONTH.value:
+        return [i < n // 3 for i in range(n)]
+    if rv == RecencyProfile.MIXED.value:
+        return [i % 2 == 0 for i in range(n)]
+    # UNCERTAIN -> conservative all-over.
+    return [False] * n
+
+
+def _derive_gbp_category(form: dict[str, Any]) -> GBPCategory | None:
+    """Spec v2 — auto-pick a GBPCategory enum value from the form.
+
+    Priority: explicit ``gbp_category`` field (enum value as string) > mapping
+    of ``business_category`` text > mapping of ``business_name`` text > None.
+    """
+    explicit = (form.get("gbp_category") or "").strip()
+    if explicit:
+        try:
+            return GBPCategory(explicit)
+        except ValueError:
+            pass
+    for source_field in ("business_category", "business_name"):
+        text = (form.get(source_field) or "").strip()
+        if not text:
+            continue
+        mapped = map_text_to_gbp_category(text)
+        if mapped:
+            try:
+                return GBPCategory(mapped)
+            except ValueError:
+                continue
+    return None
+
+
 def build_lead_from_bindings(form: dict[str, Any]) -> LeadRecord:
     rc = form.get("review_count", 2)
     if isinstance(rc, float):
         rc = int(rc)
+    rc_int = int(rc or 2)
     ns = form.get("negotiation_step", 0)
     if isinstance(ns, float):
         ns = int(ns)
+    recency_value = form.get("recency") or RecencyProfile.ALL_UNDER_1_MONTH.value
+    has_image_reviews = bool(form.get("has_image_reviews"))
     return LeadRecord(
         lead_id=str(form.get("lead_id") or "test-lead"),
         first_name=str(form.get("first_name") or "Sam"),
@@ -105,8 +162,8 @@ def build_lead_from_bindings(form: dict[str, Any]) -> LeadRecord:
         phone=str(form.get("phone") or "+15550001111"),
         email=str(form.get("email") or "sam@example.com"),
         gbp_link=(str(form.get("gbp_link") or "").strip() or None),
-        review_count=int(rc or 2),
-        recency_profile=RecencyProfile(form.get("recency") or RecencyProfile.ALL_UNDER_1_MONTH.value),
+        review_count=rc_int,
+        recency_profile=RecencyProfile(recency_value),
         business_category=str(form.get("business_category") or "plumber"),
         is_price_sensitive_bulk=bool(form.get("is_price_sensitive_bulk")),
         negotiation_step=int(ns or 0),
@@ -114,11 +171,19 @@ def build_lead_from_bindings(form: dict[str, Any]) -> LeadRecord:
         soft_quote_mode=bool(form.get("soft_quote_mode")),
         lead_source=str(form.get("lead_source") or "tester"),
         urgency_flag=(str(form.get("urgency_flag") or "").strip() or None),
+        # Spec v2: derive industry-pricing fields so the commercial engine can
+        # actually quote instead of returning request_category_first=True.
+        gbp_category=_derive_gbp_category(form),
+        reviews_image_content=[has_image_reviews] * rc_int,
+        reviews_under_one_month=_derive_recency_flags(recency_value, rc_int),
     )
 
 
 def apply_inspection_dict_to_form(form: dict[str, Any], raw: dict[str, Any]) -> list[str]:
-    """Merge a successful ``inspect_maps_place`` result into tester lead form fields."""
+    """Merge a successful ``inspect_maps_place`` result into tester lead form fields.
+
+    Spec v2 also imports gbp_category and per-review image/recency flags.
+    """
     if raw.get("status") != "success":
         return []
     applied: list[str] = []
@@ -132,6 +197,12 @@ def apply_inspection_dict_to_form(form: dict[str, Any], raw: dict[str, Any]) -> 
     if "business_category" in updates:
         form["business_category"] = updates["business_category"]
         applied.append("business_category")
+    if "gbp_category" in updates:
+        form["gbp_category"] = updates["gbp_category"]
+        applied.append("gbp_category")
+    if raw.get("any_review_has_images") is True:
+        form["has_image_reviews"] = True
+        applied.append("has_image_reviews")
     if raw.get("business_name_extracted"):
         form["business_name"] = raw["business_name_extracted"]
         applied.append("business_name")
@@ -158,6 +229,9 @@ def index() -> None:
         "review_count": 2,
         "recency": RecencyProfile.ALL_UNDER_1_MONTH.value,
         "business_category": "plumber",
+        # Spec v2: GBP industry category enum + per-review image hint.
+        "gbp_category": GBPCategory.PLUMBER.value,
+        "has_image_reviews": False,
         "is_price_sensitive_bulk": False,
         "negotiation_step": 0,
         "ai_quote_allowed": True,
@@ -578,6 +652,16 @@ def index() -> None:
                         value=form_state["recency"],
                     ).bind_value(form_state, "recency")
                     ui.input("Business category").bind_value(form_state, "business_category")
+                    # Spec v2 — industry pricing matrix needs an explicit GBPCategory
+                    ui.select(
+                        {c.value: c.value for c in GBPCategory},
+                        label="GBP category (spec v2)",
+                        value=form_state["gbp_category"],
+                    ).bind_value(form_state, "gbp_category")
+                    ui.checkbox(
+                        "Any image reviews? (spec v2 T1 exception input)",
+                        value=False,
+                    ).bind_value(form_state, "has_image_reviews")
                     ui.number("Negotiation step", format="%.0f", value=0).bind_value(
                         form_state, "negotiation_step"
                     )

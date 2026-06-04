@@ -22,10 +22,48 @@ APPROVED_SUCCESS_PERCENTAGE_ASKED = (
     "I won't pin it to a specific number in writing — the rate varies by review type. "
     "The pay-after-removal structure is the real answer: if it doesn't come down, there is no charge."
 )
+APPROVED_SUCCESS_GENERAL = (
+    "We have a high success rate on reviews that fall within Google's policy violation criteria, "
+    "which is why we operate pay-after-removal. You only pay once a review is actually down. "
+    "If we can't remove it, you don't pay for it."
+)
 APPROVED_PAY_ANCHOR = (
     "You don't pay until the review is actually down. We send you a screenshot link confirming the removal, "
     "and your invoice goes out at that point — not before. That's how we structure every job."
 )
+APPROVED_SUCCESS_PARAGRAPHS: dict[str, str] = {
+    "general": APPROVED_SUCCESS_GENERAL,
+    "percentage_asked": APPROVED_SUCCESS_PERCENTAGE_ASKED,
+}
+
+# Spec v2 analysis Bug J + L — surface the approved METHODOLOGY strings
+# in the per-call payload so the drafter can copy them verbatim and the SC
+# sanitizer can recognize them as substring allowlist.
+APPROVED_METHODOLOGY_GENERAL = (
+    "Our team identifies the specific policy violations in each review, "
+    "frames the dispute against Google's own published guidelines, and works "
+    "directly through Google's reporting channels. We have a systemized "
+    "process for how that's framed, which is why our success rate holds "
+    "where it does."
+)
+APPROVED_METHODOLOGY_GOOGLE_PARTNER = (
+    "We work through Google's standard reporting channels. The leverage is in "
+    "how each violation is identified and framed, not in any inside access."
+)
+APPROVED_METHODOLOGY_MORE_DETAIL_ASKED = (
+    "I'd rather not get into the operational detail in writing. Your "
+    "specialist can walk you through the framing approach on a quick call if "
+    "that would help."
+)
+APPROVED_METHODOLOGY_PARAGRAPHS: dict[str, str] = {
+    "general": APPROVED_METHODOLOGY_GENERAL,
+    "google_partner": APPROVED_METHODOLOGY_GOOGLE_PARTNER,
+    "more_detail_asked": APPROVED_METHODOLOGY_MORE_DETAIL_ASKED,
+}
+
+# Spec v2 analysis Bug K — DocuSign / agreement-process one-liner.
+APPROVED_DOCUSIGN_LINE = "DocuSign is sent at the close."
+
 APPROVED_COPY_ALLOWING_EMDASH: tuple[str, ...] = (
     APPROVED_SUCCESS_PERCENTAGE_ASKED,
     APPROVED_PAY_ANCHOR,
@@ -90,7 +128,7 @@ ABSOLUTE RULES — IN-SCOPE TOPICS:
 - **Phone-call threshold (spec v2):** If commercial_output.phone_call_threshold_triggered is true, you MUST NOT state any specific dollar amount in the draft. Instead, qualify the lead, reference the GBP profile, express confidence in the removal, and pivot to a phone call. After hours: "For a profile like yours, I want to make sure I give you an accurate quote based on the full picture. Your specialist will walk you through the pricing on a quick call. I can get one on the calendar for first thing tomorrow morning." Business hours: "Your specialist is reviewing your profile right now and will reach out shortly with the pricing details." Any dollar figure under this flag fails self-correction.
 - **No ROI / CLV / lifetime-value language. Ever.** Spec v2 bans phrases like "ROI", "return on investment", "customer lifetime value", "CLV", "lifetime value", "revenue per customer". Speak to the immediate review-removal outcome only.
 - If commercial_output reflects a negotiation step after pushback (authorized_quote_usd_per_review differs from an earlier quote in the transcript), state the NEW authorized figure — do not restate an outdated opening quote.
-- Timelines, methodology, success rate, warranty: use ONLY the approved framing strings provided separately in this message block when those topics appear (mirror them exactly when used). A direct lead question about timing always requires the matching TIMELINE paragraph — see REPLYING TO THE LEAD'S LATEST MESSAGE. Success-rate questions always use SUCCESS general or SUCCESS percentage_asked verbatim — never escalate that topic by itself.
+- Timelines, methodology, success rate, warranty: use ONLY the approved framing strings provided separately in this message block when those topics appear (mirror them exactly when used). A direct lead question about timing always requires the matching TIMELINE paragraph — see REPLYING TO THE LEAD'S LATEST MESSAGE. Success-rate questions always use SUCCESS general or SUCCESS percentage_asked verbatim — never escalate that topic by itself. **Methodology / "how does it work" questions**: the input JSON contains ``approved_methodology_paragraphs`` keyed by ``general`` / ``google_partner`` / ``more_detail_asked``. Copy the matching paragraph verbatim — do NOT paraphrase or extend it. General "how do you do this" use ``general``. Lead pressing for operational detail use ``more_detail_asked``. **DocuSign / contract / agreement / paperwork questions**: the input JSON contains ``approved_docusign_line`` which is the only sentence allowed. You may add at most one short follow-up sentence about pay-after-removal or next-step CTA, but do NOT add extra detail about the brief, signing process, what happens at the close, etc.
 - DocuSign: say only "DocuSign is sent at the close." if asked about contract/doc terms.
 - Pay-after-removal anchor when commercially relevant.
 - Scheduling a call; follow-up nudges; acknowledge receipt.
@@ -108,7 +146,7 @@ SPECIFIC NAMED PERSON REQUEST (action escalate — pipeline may also catch this)
 - Normal scheduling stays in bounds: "a specialist", "your team", "someone on your team", owner/manager-only asks without a personal name — use **action send** and existing CTAs (reply here or schedule a call).
 
 HARD ESCALATION ONLY (action escalate for these — not for vague "outside our service" or off-topic chatter above):
-- Refunds, chargebacks, payment disputes post-payment.
+- Refunds, chargebacks, or payment disputes on a **prior invoice that has already been paid or attempted** — i.e. the lead is describing an actual billing event, not a hypothetical. A pre-sales lead asking hypothetically "what's your chargeback policy if something goes wrong" is **NOT** an escalation — answer with the approved PAY-ANCHOR paragraph (you only pay after the review is down; no charge if it doesn't come down) and continue the sales conversation.
 - Legal/defamation.
 - Contract terms beyond DocuSign line.
 - **Stating** any **numeric** success rate, odds, or removal percentage **other than** the two verbatim SUCCESS paragraphs below (and other than the approved warranty line that mentions ~5% for re-reviews). Asking about success rate is **not** out of scope — answer with SUCCESS general or percentage_asked; see REPLYING TO THE LEAD.
@@ -228,6 +266,8 @@ INPUT JSON contains:
   - lead_tone_hint: optional pre-classified tone (cooperative / price_sensitive / urgent / noncommittal) or null
   - engagement_hint: optional engagement bucket (high / medium / low) or null
   - recent_transcript_tail: last 8 turns of the conversation (may be empty for first touch)
+  - t1_written_exception_active: when true, the T1 written-quote exception applies (spec v2 Section 4). You may pick a fast written close in $400-$450 INSTEAD of the standard band. When true, range_low_usd will be expanded to the floor.
+  - t1_written_exception_guidance: human-readable guidance when the exception is active (or null)
 
 OUTPUT: JSON only, no markdown fences.
 Schema: {"selected_price_usd": int, "lead_tone": "cooperative"|"price_sensitive"|"urgent"|"noncommittal", "engagement": "high"|"medium"|"low", "reasoning_summary": "string under 240 chars"}
@@ -266,7 +306,14 @@ DECISION RULES (apply in order):
    - At step 0: select the opening price using the modifiers above
    - At step 1 or 2: pick a defensible position within range; the engine will apply the multiplicative discount on top of your selection. So at step 1/2, output the SAME logical "opening" position you would at step 0 — do NOT pre-discount yourself.
 
-8. **Reasoning summary** must be one sentence under 240 characters that names the tier, category, recency/image flags, lead tone, and the one or two factors that drove the final number. Example: "T1 dentist, 2 reviews both image+under-1-month, cooperative tone, positioning at lower end of band for fast close at $485."
+8. **T1 written-quote exception (when t1_written_exception_active is true):**
+   - Conditions are pre-verified: T1 tier, review_count <= 2, every review is image-or-under-1-month
+   - You may pick a fast written close in $400-$450 (below the standard band's low end)
+   - Strongly prefer the $400-$450 written close when the lead is engaged (cooperative/urgent tone, high/medium engagement) — this is the spec's intended path because the job is simple and a fast close beats a phone-call delay
+   - Only pick in the standard band ($480+) when the lead seems hesitant and a salesman conversation would help (price_sensitive + low engagement combination is the only case where the phone-route adds value here)
+   - When you pick the exception path, your reasoning_summary must include the phrase "T1 written exception" so downstream auditing can confirm intent
+
+9. **Reasoning summary** must be one sentence under 240 characters that names the tier, category, recency/image flags, lead tone, and the one or two factors that drove the final number. Example: "T1 dentist, 2 reviews both image+under-1-month, cooperative tone, T1 written exception fast close at $440."
 
 NEVER include any USD figure outside the band. NEVER select below floor. NEVER omit a field from the schema. If unsure, prefer the band midpoint and a conservative reasoning summary."""
 
@@ -315,8 +362,8 @@ BANNED OPENERS / FILLER (these ARE failures, copy_rules):
 
 CHECK ORDER (evaluate in this exact order; note all failures but verdict follows the rules below):
 1. factual_accuracy — names, business, country match lead_record. No invented facts. (For customer review requests, treat completed_job_summary in the customer_record / draft as factual.)
-2. scope — nothing from the hard-escalation list (refunds post-pay, legal/defamation, contract beyond DocuSign line, numeric success-rate or removal odds invented by the draft outside the two approved SUCCESS paragraphs, operational detail beyond approved methodology strings, guaranteeing removal of a named review, services outside ReviewArmour). A short polite redirect when the lead's message was off-topic or unrelated to ReviewArmour is in scope — not a scope failure. Answering a lead's success-rate question using verbatim SUCCESS general or SUCCESS percentage_asked is not a scope failure.
-3. pricing — stated price must equal commercial authorized_quote_usd_per_review unless soft_quote_mode permits a band; never invent a lower hard-quote USD figure than authorized_quote_usd_per_review; currency USD per review; at most one price if hard mode. (There is no separate floor value in the JSON you receive for drafts.) **Spec v2 phone-call threshold**: if commercial_snapshot.phone_call_threshold_triggered is true, the draft MUST contain NO specific dollar figure at all — verdict fix. The AI should pivot to a phone call instead. **Spec v2 ROI/CLV ban**: any phrase among "ROI", "return on investment", "CLV", "customer lifetime value", "lifetime value", "value per customer", "revenue per customer" is a fix.
+2. scope — nothing from the hard-escalation list (refunds post-pay, legal/defamation, contract beyond DocuSign line, numeric success-rate or removal odds invented by the draft outside the two approved SUCCESS paragraphs, operational detail beyond approved methodology strings, guaranteeing removal of a named review, services outside ReviewArmour). A short polite redirect when the lead's message was off-topic or unrelated to ReviewArmour is in scope — not a scope failure. **Approved SUCCESS paragraphs**: the input JSON includes ``approved_success_paragraphs`` with verbatim strings keyed by ``general`` and ``percentage_asked``. If a draft contains either verbatim string as a substring (whitespace-normalized), the success-rate topic IS handled correctly — do NOT flag scope or success_rate failures on that draft. The phrase "high success rate" is permitted ONLY when it appears as part of the verbatim SUCCESS general paragraph.
+3. pricing — stated price must equal commercial authorized_quote_usd_per_review unless soft_quote_mode permits a band; never invent a hard-quote USD figure not equal to authorized_quote_usd_per_review; currency USD per review; at most one price if hard mode. **Spec v2 negotiation-step pricing**: at negotiation_step 1 or 2 the authorized_quote_usd_per_review is INTENTIONALLY below range_low_usd because the discount ladder applies on top of the opening band. The only absolute lower bound is floor_usd (tier floor). Do NOT fail a draft whose price equals authorized_quote_usd_per_review just because it is below range_low_usd at step>=1. Fail only when the stated price is below floor_usd OR differs from authorized_quote_usd_per_review. **Spec v2 phone-call threshold**: if commercial_snapshot.phone_call_threshold_triggered is true, the draft MUST contain NO specific dollar figure at all — verdict fix. The AI should pivot to a phone call instead. **Spec v2 ROI/CLV ban**: any phrase among "ROI", "return on investment", "CLV", "customer lifetime value", "lifetime value", "value per customer", "revenue per customer" is a fix.
 4. timeline_language — when the draft discusses removal timing, typical window, or refusal to commit to a calendar date, and approved_timeline_paragraph is non-null, that exact string (chosen for this turn via timeline_framing_key: recency timeline vs hard_guarantee_asked) must appear in the draft with no paraphrase. Pass if, after whitespace-normalizing the draft body, approved_timeline_paragraph appears as a contiguous substring. If approved_timeline_paragraph is null, pass unless the draft clearly invents timing wording not from training. If the draft avoids timing topics entirely, pass. Do not fail hard_guarantee_asked replies for missing the under_1_month or mixed_or_over paragraph.
 5. methodology_language — approved strings exactly when methodology topic appears.
 6. success_rate — no specific percentage claims except the approved warranty line that mentions 5% for re-review cases; otherwise approved strings only.
