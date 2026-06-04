@@ -96,12 +96,36 @@ def pipeline_result_to_dict(pr: Any) -> dict[str, Any]:
             "reason": pr.draft.reason,
         }
     if pr.commercial:
+        c = pr.commercial
         out["commercial"] = {
-            "tier_id": pr.commercial.tier_id,
-            "authorized_quote_usd_per_review": pr.commercial.authorized_quote_usd_per_review,
-            "escalate": pr.commercial.escalate,
-            "escalation_reason": pr.commercial.escalation_reason,
-            "request_gbp_first": pr.commercial.request_gbp_first,
+            "tier_id": c.tier_id,
+            "tier": c.tier.value if hasattr(c, "tier") and c.tier else None,
+            "gbp_category": c.gbp_category.value if c.gbp_category else None,
+            "volume_bracket": c.volume_bracket.value if c.volume_bracket else None,
+            "range_low_usd": c.range_low_usd,
+            "range_high_usd": c.range_high_usd,
+            "floor_usd": c.floor_usd,
+            "authorized_quote_usd_per_review": c.authorized_quote_usd_per_review,
+            "negotiation_step": c.negotiation_step,
+            "can_quote": c.can_quote,
+            "escalate": c.escalate,
+            "escalation_reason": c.escalation_reason,
+            "request_gbp_first": c.request_gbp_first,
+            "request_category_first": getattr(c, "request_category_first", False),
+            "phone_call_threshold_triggered": getattr(c, "phone_call_threshold_triggered", False),
+            "salesman_recommended_range": (
+                list(c.salesman_recommended_range)
+                if getattr(c, "salesman_recommended_range", None)
+                else None
+            ),
+            "salesman_recommended_opening_usd": getattr(
+                c, "salesman_recommended_opening_usd", None
+            ),
+            "reasoning_summary": getattr(c, "reasoning_summary", ""),
+            "soft_quote_mode": getattr(c, "soft_quote_mode", False),
+            "soft_quote_range": (
+                list(c.soft_quote_range) if getattr(c, "soft_quote_range", None) else None
+            ),
         }
     for log in pr.self_correction_logs:
         out["self_correction_logs"].append(log.to_dict())

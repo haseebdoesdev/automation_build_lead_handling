@@ -136,6 +136,17 @@ _NEGOTIATION_PUSHBACK_PHRASES = (
     "any room",
     "work with me",
     "meet me",
+    # Spec v2 conversation-analysis additions
+    "wiggle room",
+    "anything you can do",
+    "feels steep",
+    "feels a bit steep",
+    "feels too steep",
+    "feels high",
+    "anything cheaper",
+    "give a discount",
+    "do better than",
+    "do any better",
 )
 
 ACCEPTANCE_PHRASES = (
@@ -236,11 +247,17 @@ def _named_specific_person_escalation_reason(s: str) -> Optional[str]:
 
 
 def transcript_suggests_recent_price_quote(transcript: list[dict[str, Any]]) -> bool:
-    """True if the latest assistant turn looks like it contained a USD per-review quote."""
+    """True if the latest assistant turn looks like it contained a USD per-review quote.
+
+    Accepts either ``body`` (legacy) or ``content`` (LLM-prompt convention) for
+    the message text. Without the dual-key check, an assistant quote stored as
+    ``content`` would never gate the post-quote acceptance / negotiation pushback
+    paths — silent failure that hides the negotiation ladder and Slack handoff.
+    """
     for turn in reversed(transcript):
         if turn.get("role") != "assistant":
             continue
-        body = turn.get("body") or ""
+        body = turn.get("body") or turn.get("content") or ""
         if _QUOTE_IN_BODY_RE.search(body):
             return True
         low = body.lower()
@@ -253,9 +270,24 @@ def transcript_suggests_recent_price_quote(transcript: list[dict[str, Any]]) -> 
 def effective_quote_context(
     quoted_previously: bool,
     transcript: list[dict[str, Any]],
+    *,
+    negotiation_step: int = 0,
 ) -> bool:
-    """Whether we should treat the thread as post-quote (CRM flag or last outbound quote)."""
-    return quoted_previously or transcript_suggests_recent_price_quote(transcript)
+    """Whether we should treat the thread as post-quote.
+
+    True when:
+      - CRM signalled ``quoted_previously``, OR
+      - the last assistant turn looks like a USD per-review quote, OR
+      - ``negotiation_step`` is already >= 1 (lead has been through pricing
+        at least once — even if the simulator transcript is empty, e.g. on a
+        CRM-resumed conversation, the step counter is the source of truth for
+        whether pushback / acceptance / past-final-step routing should fire).
+    """
+    return (
+        quoted_previously
+        or negotiation_step >= 1
+        or transcript_suggests_recent_price_quote(transcript)
+    )
 
 
 def transcript_including_inbound(
@@ -472,7 +504,15 @@ class AdaptivePriceSelector:
         range_high_usd: int,
         floor_usd: int,
         retry_reason: Optional[str] = None,
+        t1_written_exception_active: bool = False,
     ) -> AdaptivePriceResult:
+        """Pick a per-review price within the authorized band.
+
+        When ``t1_written_exception_active`` is True, the prompt is told the
+        T1 written-quote exception (spec v2 Section 4) applies — the selector
+        may pick a fast written close in ``floor_usd``..``$450`` instead of the
+        standard band. The engine still validates the final price.
+        """
         tail = transcript[-8:] if len(transcript) > 8 else transcript
         payload = {
             "tier": tier,
@@ -493,6 +533,17 @@ class AdaptivePriceSelector:
             "business_name": lead.business_name,
             "recent_transcript_tail": tail,
             "retry_reason": retry_reason,
+            "t1_written_exception_active": t1_written_exception_active,
+            "t1_written_exception_guidance": (
+                "T1 written-quote exception applies for this lead (review_count <= 2 "
+                "AND every review is image-or-under-1-month). You may select a fast "
+                "written close in $400-$450 INSTEAD of the standard band. Prefer the "
+                "written close path when the lead is engaged and likely to accept — "
+                "a $420-$450 close beats a phone-call route every time on simple "
+                "image-or-recent jobs."
+                if t1_written_exception_active
+                else None
+            ),
         }
         data = _call_claude_for_json(
             client=self._client,
@@ -571,6 +622,13 @@ class ConversationModule:
         operator_directive: Optional[str] = None,
         gbp_inspection: Optional[dict[str, Any]] = None,
     ) -> OutboundDraft:
+        # Spec v2 analysis Bug J + L + K: surface methodology + DocuSign
+        # approved strings in the drafter payload so the LLM can copy them
+        # verbatim instead of paraphrasing from system-prompt memory.
+        from reviewarmour.prompt_templates import (
+            APPROVED_DOCUSIGN_LINE,
+            APPROVED_METHODOLOGY_PARAGRAPHS,
+        )
         payload = {
             "lead_record": lead_record_to_dict(lead),
             "conversation_transcript": transcript,
@@ -579,6 +637,8 @@ class ConversationModule:
             "first_touch_variation": self._first_touch_variation,
             "timeline_class": recency_to_timeline_class(lead.recency_profile),
             "approved_timeline_paragraphs": dict(APPROVED_TIMELINE_PARAGRAPHS),
+            "approved_methodology_paragraphs": dict(APPROVED_METHODOLOGY_PARAGRAPHS),
+            "approved_docusign_line": APPROVED_DOCUSIGN_LINE,
             "commercial_output": commercial_output.to_prompt_dict() if commercial_output else None,
             "operator_directive": operator_directive,
             "soft_quote_mode": lead.soft_quote_mode,
@@ -693,28 +753,49 @@ def _lower(text: str) -> str:
     return text.strip().lower()
 
 
+def _match_word(phrase: str, text_lower: str) -> bool:
+    """Match a phrase as a whole word/phrase.
+
+    Spec v2 analysis Bug N: the prior code used naive ``substring in text``
+    which false-matched short tokens inside longer words — most damagingly
+    ``"sue"`` inside ``"issues"``. We now require both edges of the phrase
+    to sit on a non-alphanumeric boundary. Multi-word phrases are checked
+    via regex with ``\\b`` boundaries.
+    """
+    if not phrase:
+        return False
+    # Allow non-ascii apostrophes etc. by using \W on both sides.
+    pattern = r"(?<![A-Za-z0-9])" + re.escape(phrase) + r"(?![A-Za-z0-9])"
+    return re.search(pattern, text_lower) is not None
+
+
 def should_escalate_inbound(lead_message: str, *, post_payment_context: bool = False) -> Optional[str]:
-    """Return a short escalation reason, or None if no hard trigger fires."""
+    """Return a short escalation reason, or None if no hard trigger fires.
+
+    Each phrase is matched at word-boundary granularity (Bug N) so common
+    customer-service words like ``"issues"`` no longer false-trigger the
+    legal_escalation:sue path.
+    """
     s = _lower(lead_message)
     for w in LEGAL_ESCALATION:
-        if w in s:
+        if _match_word(w, s):
             return f"legal_escalation:{w}"
     if post_payment_context:
         for w in POST_PAY_ESCALATION:
-            if w in s:
+            if _match_word(w, s):
                 return f"post_payment:{w}"
-        if "cancel" in s:
+        if _match_word("cancel", s):
             return "post_payment:cancel"
     for w in REGULATOR_ESCALATION:
-        if w in s:
+        if _match_word(w, s):
             return f"regulator:{w}"
     for w in SPECIFIC_PERSON_ESCALATION:
-        if w in s:
+        if _match_word(w, s):
             return f"specific_person:{w}"
     npr = _named_specific_person_escalation_reason(s)
     if npr:
         return npr
-    if "lawsuit" in s or "suing" in s:
+    if _match_word("lawsuit", s) or _match_word("suing", s):
         return "legal_escalation:lawsuit_related"
     return None
 
@@ -1122,9 +1203,29 @@ class OutboundPipeline:
             return None, {}, ""
 
         # Resolve the band the engine will validate against. Mirror commercial.py.
-        from reviewarmour.commercial import get_volume_band
+        from reviewarmour.commercial import (
+            T1_WRITTEN_EXCEPTION_CEILING_USD,
+            get_volume_band,
+        )
 
         config, band = get_volume_band(lead.gbp_category, lead.review_count)
+
+        # Spec v2 Section 4: T1 written-quote exception. When applicable, the
+        # selector sees a wider range (floor..$450 OR band) and a prompt hint
+        # so it can choose between a fast written close and the phone route.
+        t1_exception_active = (
+            config.tier.value == "T1"
+            and lead.review_count <= 2
+            and lead.all_reviews_image_or_recent()
+        )
+        if t1_exception_active:
+            # Expand range_low down to the floor so $400-$450 is in-band for
+            # the selector AND the standard band remains available.
+            selector_range_low = config.floor_usd
+            selector_range_high = band.high_usd
+        else:
+            selector_range_low = band.low_usd
+            selector_range_high = band.high_usd
 
         retry_reason: Optional[str] = None
         for attempt in range(self.MAX_ADAPTIVE_RETRIES + 1):
@@ -1133,10 +1234,11 @@ class OutboundPipeline:
                     lead=lead,
                     transcript=transcript,
                     tier=config.tier.value,
-                    range_low_usd=band.low_usd,
-                    range_high_usd=band.high_usd,
+                    range_low_usd=selector_range_low,
+                    range_high_usd=selector_range_high,
                     floor_usd=config.floor_usd,
                     retry_reason=retry_reason,
+                    t1_written_exception_active=t1_exception_active,
                 )
             except Exception as e:
                 logger.warning(
@@ -1149,31 +1251,37 @@ class OutboundPipeline:
             in_band = band.low_usd <= price <= band.high_usd
             above_floor = price >= config.floor_usd
 
-            # T1 written-exception: also accept floor..$450 when conditions are met.
-            from reviewarmour.commercial import T1_WRITTEN_EXCEPTION_CEILING_USD
             t1_exception_ok = (
-                config.tier.value == "T1"
-                and lead.review_count <= 2
-                and lead.all_reviews_image_or_recent()
+                t1_exception_active
                 and config.floor_usd <= price <= T1_WRITTEN_EXCEPTION_CEILING_USD
             )
 
             if (in_band or t1_exception_ok) and above_floor:
                 logger.info(
-                    "AdaptivePriceSelector: lead %s tier=%s band=$%d-$%d -> $%d (%s)",
+                    "AdaptivePriceSelector: lead %s tier=%s band=$%d-$%d -> $%d (%s)"
+                    "%s",
                     lead.lead_id, config.tier.value, band.low_usd, band.high_usd,
                     price, result.lead_tone,
+                    " [T1-exception]" if t1_exception_ok and not in_band else "",
                 )
                 return price, result.to_adaptive_inputs(), result.reasoning_summary
 
-            retry_reason = (
-                f"Your previous response selected ${price} which is outside the "
-                f"allowed band ${band.low_usd}-${band.high_usd} or below floor "
-                f"${config.floor_usd}. Pick a new integer per-review price strictly "
-                f"within ${band.low_usd}-${band.high_usd} (or, for T1 exception, "
-                f"${config.floor_usd}-$450 only when review_count <= 2 and every "
-                f"review is image-or-under-1-month)."
-            )
+            if t1_exception_active:
+                retry_reason = (
+                    f"Your previous response selected ${price} which is outside both "
+                    f"the standard band ${band.low_usd}-${band.high_usd} and the T1 "
+                    f"written-exception band ${config.floor_usd}-${T1_WRITTEN_EXCEPTION_CEILING_USD}. "
+                    f"Pick an integer per-review price in EITHER "
+                    f"${config.floor_usd}-${T1_WRITTEN_EXCEPTION_CEILING_USD} (fast written close) "
+                    f"OR ${band.low_usd}-${band.high_usd} (phone-route)."
+                )
+            else:
+                retry_reason = (
+                    f"Your previous response selected ${price} which is outside the "
+                    f"allowed band ${band.low_usd}-${band.high_usd} or below floor "
+                    f"${config.floor_usd}. Pick a new integer per-review price strictly "
+                    f"within ${band.low_usd}-${band.high_usd}."
+                )
             logger.info(
                 "AdaptivePriceSelector retry %d for lead %s: %s",
                 attempt + 1, lead.lead_id, retry_reason,
@@ -1222,7 +1330,9 @@ class OutboundPipeline:
                     state_updates={"consecutive_no_progress_turns": cstate.consecutive_no_progress_turns},
                 )
 
-            effective_quote = effective_quote_context(quoted_previously, transcript)
+            effective_quote = effective_quote_context(
+                quoted_previously, transcript, negotiation_step=lead.negotiation_step
+            )
 
             accepted = False
             if effective_quote:
@@ -1317,14 +1427,22 @@ class OutboundPipeline:
         if (
             inbound_message
             and effective_wants_price
-            and effective_quote_context(quoted_previously, transcript)
+            and effective_quote_context(
+                quoted_previously, transcript, negotiation_step=lead.negotiation_step
+            )
         ):
             pushback = llm_turn.negotiation_pushback or is_negotiation_pushback(
                 inbound_message
             )
-            if pushback and lead.negotiation_step > 2:
+            # Spec v2 analysis Bug F: lead is already AT the max step (2) and
+            # sending a fresh pushback = past-final. The previous ``> 2`` guard
+            # was dead because ``record_negotiation_pushback`` caps step at 2.
+            # We only enter this branch when ``effective_quote_context`` is
+            # True above, so there IS a prior pricing context — a pushback now
+            # at step>=2 is the spec's third-pushback escalation.
+            if pushback and lead.negotiation_step >= 2:
                 logger.info(
-                    "Negotiation pushback past final step (step>2); escalating for lead %s",
+                    "Negotiation pushback past final step (step>=2); escalating for lead %s",
                     lead.lead_id,
                 )
                 return PipelineResult(
@@ -1453,6 +1571,33 @@ class OutboundPipeline:
                     commercial=commercial,
                     self_correction_logs=logs,
                 )
+
+            # Spec v2 analysis Bug D + O: deterministically clean draft body
+            # before SC sees it. Strips "for a profile like X" hedging (Bug D)
+            # and replaces forbidden em dashes with commas (Bug O), both
+            # preserving approved-string allowlists. The LLM keeps re-emitting
+            # these patterns across redrafts even after SC flags them, sinking
+            # leads into human_queue. Stripping pre-SC lets the loop converge.
+            if draft.body:
+                from reviewarmour.self_correction import (
+                    strip_forbidden_em_dashes,
+                    strip_hedged_pricing_intro,
+                )
+                stripped_body = strip_hedged_pricing_intro(draft.body)
+                stripped_body = strip_forbidden_em_dashes(stripped_body)
+                if stripped_body != draft.body:
+                    logger.info(
+                        "Cleaned draft body for lead %s (attempt %d)",
+                        lead.lead_id, attempt,
+                    )
+                    draft = OutboundDraft(
+                        action=draft.action,
+                        channel=draft.channel,
+                        subject=draft.subject,
+                        body=stripped_body,
+                        reason=draft.reason,
+                    )
+                    last_draft = draft
 
             verdict = self._sc.review(
                 draft_subject=draft.subject,
