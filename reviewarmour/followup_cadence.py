@@ -203,7 +203,7 @@ def schedule_nurture_follow_ups(
 
 
 def _touchpoint_counts(transcript: list[dict[str, Any]]) -> tuple[int, int, int]:
-    """Total touches (non-system), n_email, n_sms."""
+    """Total touches (non-system), n_email, n_sms (WhatsApp counted alongside SMS)."""
     n_email = n_sms = 0
     n = 0
     for row in transcript:
@@ -214,7 +214,7 @@ def _touchpoint_counts(transcript: list[dict[str, Any]]) -> tuple[int, int, int]
         ch = str(row.get("channel") or "").lower()
         if ch == Channel.EMAIL.value:
             n_email += 1
-        elif ch == Channel.SMS.value:
+        elif ch in (Channel.SMS.value, Channel.WHATSAPP.value):
             n_sms += 1
     return n, n_email, n_sms
 

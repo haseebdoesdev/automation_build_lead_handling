@@ -36,6 +36,37 @@ async def send_sms(
         return {"sid": None, "status": "failed", "error": str(e)}
 
 
+async def send_whatsapp(
+    to_phone: str,
+    body: str,
+    country: str,
+    config: AppConfig,
+) -> dict[str, Any]:
+    """Send WhatsApp message via Twilio. to_phone is a bare E.164 number (no whatsapp: prefix)."""
+    from_phone = config.twilio_wa_us_phone if country == "US" else config.twilio_wa_ca_phone
+    if not from_phone:
+        logger.warning("WhatsApp send skipped for %s: no WA number configured for %s", to_phone, country)
+        return {"sid": None, "status": "skipped_no_wa_number"}
+
+    try:
+        from twilio.rest import Client
+
+        client = Client(config.twilio_account_sid, config.twilio_auth_token)
+        message = client.messages.create(
+            body=body,
+            from_=from_phone,
+            to=f"whatsapp:{to_phone}",
+        )
+        logger.info("WhatsApp sent to %s: SID=%s", to_phone, message.sid)
+        return {"sid": message.sid, "status": message.status}
+    except ImportError:
+        logger.warning("Twilio SDK not installed. WhatsApp to %s not sent.", to_phone)
+        return {"sid": "mock_no_twilio", "status": "mock"}
+    except Exception as e:
+        logger.error("WhatsApp send failed to %s: %s", to_phone, e)
+        return {"sid": None, "status": "failed", "error": str(e)}
+
+
 async def send_email(
     to_email: str,
     subject: str,

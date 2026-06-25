@@ -19,6 +19,9 @@ class AppConfig:
     twilio_auth_token: str = ""
     twilio_us_phone: str = ""
     twilio_ca_phone: str = ""
+    twilio_wa_us_phone: str = ""
+    twilio_wa_ca_phone: str = ""
+    whatsapp_enabled: bool = False
 
     # --- Amazon SES ---
     ses_region: str = "us-east-1"
@@ -73,6 +76,11 @@ def load_config() -> AppConfig:
         twilio_auth_token=os.environ.get("TWILIO_AUTH_TOKEN", ""),
         twilio_us_phone=os.environ.get("TWILIO_US_PHONE", ""),
         twilio_ca_phone=os.environ.get("TWILIO_CA_PHONE", ""),
+        twilio_wa_us_phone=os.environ.get("TWILIO_WA_US_PHONE", ""),
+        twilio_wa_ca_phone=os.environ.get("TWILIO_WA_CA_PHONE", ""),
+        whatsapp_enabled=bool(
+            os.environ.get("TWILIO_WA_US_PHONE") or os.environ.get("TWILIO_WA_CA_PHONE")
+        ),
         ses_region=os.environ.get("SES_REGION", "us-east-1"),
         ses_sender_email_us=os.environ.get("SES_SENDER_EMAIL_US", ""),
         ses_sender_email_ca=os.environ.get("SES_SENDER_EMAIL_CA", ""),
