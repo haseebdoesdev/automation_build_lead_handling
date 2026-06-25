@@ -332,10 +332,39 @@ def index() -> None:
                 ]
                 for label, on in items:
                     ui.badge(label, color="positive" if on else "grey")
+                # Spec v2 badges
+                v2 = [
+                    ("phone-call route", d.get("phone_call_threshold_triggered")),
+                    ("request_gbp_first", d.get("request_gbp_first")),
+                    ("request_category_first", d.get("request_category_first")),
+                    ("soft_quote_mode", d.get("soft_quote_mode")),
+                ]
+                for label, on in v2:
+                    if on:
+                        ui.badge(label, color="warning")
+                if d.get("tier"):
+                    ui.badge(f"tier: {d['tier']}", color="info")
+                if d.get("gbp_category"):
+                    ui.badge(f"cat: {d['gbp_category']}", color="info")
+                if d.get("authorized_quote_usd"):
+                    ui.badge(f"quote: ${d['authorized_quote_usd']}/review", color="positive")
+                if d.get("phone_call_threshold_triggered") and d.get("salesman_recommended_opening_usd"):
+                    ui.badge(
+                        f"salesman opening: ${d['salesman_recommended_opening_usd']}",
+                        color="warning",
+                    )
+                if d.get("soft_quote_range"):
+                    lo, hi = d["soft_quote_range"]
+                    ui.badge(f"soft range: ${lo}-${hi}", color="info")
                 attempts = d.get("self_correction_attempts")
                 verdicts = d.get("last_sc_verdicts")
                 if attempts is not None:
                     ui.badge(f"SC attempts={attempts} verdicts={verdicts}", color="info")
+                if d.get("adaptive_reasoning_summary"):
+                    with ui.row().classes("w-full mt-2"):
+                        ui.label(
+                            f"adaptive: {d['adaptive_reasoning_summary']}"
+                        ).classes("text-xs text-grey w-full")
 
     def _turn_belongs_channel(turn: dict[str, Any], target: str) -> bool:
         ch = (turn.get("channel") or "").lower()
