@@ -25,6 +25,7 @@ class RecencyProfile(str, Enum):
 class Channel(str, Enum):
     EMAIL = "email"
     SMS = "sms"
+    WHATSAPP = "whatsapp"
 
 
 class CallOutcome(str, Enum):

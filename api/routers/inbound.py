@@ -151,6 +151,50 @@ async def receive_sms_reply(
     return {"status": "received", "lead_id": str(lead.id)}
 
 
+@router.post("/whatsapp")
+async def receive_whatsapp_reply(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    """Twilio WhatsApp reply webhook. Matches phone to lead, runs AI pipeline."""
+    config = request.app.state.config
+    form_data = await request.form()
+    raw_from = form_data.get("From", "")
+    body = form_data.get("Body", "")
+    message_sid = form_data.get("MessageSid", "")
+
+    # Twilio sends From as "whatsapp:+1XXXXXXXXXX" — strip prefix for DB lookup
+    from_phone = raw_from.removeprefix("whatsapp:")
+
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(Lead).where(Lead.phone == from_phone).order_by(Lead.created_at.desc())
+    )
+    lead = result.scalars().first()
+
+    if not lead:
+        logger.warning("WhatsApp from unknown phone: %s", from_phone)
+        return {"status": "unknown_sender"}
+
+    msg = ConversationMessage(
+        lead_id=lead.id,
+        role="lead",
+        channel="whatsapp",
+        body=body,
+        external_id=message_sid,
+    )
+    session.add(msg)
+    await session.commit()
+
+    background_tasks.add_task(
+        handle_inbound_reply, str(lead.id), body, "whatsapp", config
+    )
+
+    return {"status": "received", "lead_id": str(lead.id)}
+
+
 @router.post("/email")
 async def receive_email_reply(
     notification: SesEmailNotification,

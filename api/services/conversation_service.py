@@ -70,7 +70,7 @@ async def handle_ai_first_touch(lead_id: str, config: AppConfig) -> None:
 
     from api.database import async_session_factory
     from api.models_db import ConversationMessage, Lead
-    from api.services.messaging_service import send_email, send_sms
+    from api.services.messaging_service import send_email, send_sms, send_whatsapp
 
     if async_session_factory is None:
         logger.error("Database not initialized")
@@ -151,6 +151,22 @@ async def handle_ai_first_touch(lead_id: str, config: AppConfig) -> None:
                     )
                 )
 
+                # Send WhatsApp (if configured)
+                if config.whatsapp_enabled:
+                    wa_result = await send_whatsapp(
+                        lead_row.phone, draft.body, lead_row.country, config
+                    )
+                    session.add(
+                        ConversationMessage(
+                            lead_id=lead_row.id,
+                            role="assistant",
+                            channel="whatsapp",
+                            body=draft.body,
+                            external_id=wa_result.get("sid"),
+                            delivery_status=wa_result.get("status", "unknown"),
+                        )
+                    )
+
                 lead_row.ai_conversation_state = "in_progress"
                 lead_row.lead_status = "ai_engaged"
                 lead_row.updated_at = datetime.now(timezone.utc)
@@ -183,7 +199,7 @@ async def handle_inbound_reply(
 
     from api.database import async_session_factory
     from api.models_db import ConversationMessage, Lead
-    from api.services.messaging_service import send_email, send_sms
+    from api.services.messaging_service import send_email, send_sms, send_whatsapp
 
     if async_session_factory is None:
         logger.error("Database not initialized")
@@ -245,7 +261,7 @@ async def handle_inbound_reply(
                 self_correction=sc_module,
             )
 
-            ch = Channel.SMS if channel == "sms" else Channel.EMAIL
+            ch = {"sms": Channel.SMS, "whatsapp": Channel.WHATSAPP}.get(channel, Channel.EMAIL)
 
             pipeline_result = await _run_pipeline_async(
                 pipeline, lead_record, transcript, ch, "reply",
@@ -279,6 +295,20 @@ async def handle_inbound_reply(
                             body=draft.body,
                             external_id=sms_result.get("sid"),
                             delivery_status=sms_result.get("status", "unknown"),
+                        )
+                    )
+                elif channel == "whatsapp":
+                    wa_result = await send_whatsapp(
+                        lead_row.phone, draft.body, lead_row.country, config
+                    )
+                    session.add(
+                        ConversationMessage(
+                            lead_id=lead_row.id,
+                            role="assistant",
+                            channel="whatsapp",
+                            body=draft.body,
+                            external_id=wa_result.get("sid"),
+                            delivery_status=wa_result.get("status", "unknown"),
                         )
                     )
                 else:
@@ -442,7 +472,7 @@ async def draft_follow_up_via_ai(
                 conversation=conv_module, self_correction=sc_module
             )
 
-            ch = Ch.SMS if channel == "sms" else Ch.EMAIL
+            ch = {"sms": Ch.SMS, "whatsapp": Ch.WHATSAPP}.get(channel, Ch.EMAIL)
             stage = f"{touch_type}_touch_{touch_index}"
 
             pipeline_result = await _run_pipeline_async(

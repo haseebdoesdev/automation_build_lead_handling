@@ -58,7 +58,13 @@ def _matches_substrings(hay: str, needles: tuple[str, ...]) -> bool:
 
 
 def inspect_pipeline_result(result: PipelineResult) -> dict[str, Any]:
-    """Flatten outcome into boolean flags for action bar."""
+    """Flatten outcome into boolean flags for action bar.
+
+    Spec v2: expose phone-call threshold, T1-exception path, gbp_category,
+    pricing tier, and request_category_first flags so the UI shows whether
+    the engine took the written-quote path vs phone-route vs ask-first.
+    """
+    c = result.commercial
     out = {
         "outcome_send": result.outcome == "send",
         "outcome_escalate": result.outcome == "escalate",
@@ -73,12 +79,32 @@ def inspect_pipeline_result(result: PipelineResult) -> dict[str, Any]:
         "draft_escalate_from_model": bool(
             result.draft and result.draft.action == "escalate"
         ),
-        "had_commercial_result": result.commercial is not None,
-        "commercial_escalated": bool(result.commercial and result.commercial.escalate),
-        "authorized_quote_usd": (
-            result.commercial.authorized_quote_usd_per_review
-            if result.commercial
+        "had_commercial_result": c is not None,
+        "commercial_escalated": bool(c and c.escalate),
+        "authorized_quote_usd": c.authorized_quote_usd_per_review if c else None,
+        # Spec v2 additions
+        "tier": c.tier.value if (c and hasattr(c, "tier") and c.tier) else None,
+        "gbp_category": (
+            c.gbp_category.value if (c and c.gbp_category) else None
+        ),
+        "phone_call_threshold_triggered": bool(
+            c and getattr(c, "phone_call_threshold_triggered", False)
+        ),
+        "salesman_recommended_opening_usd": (
+            c.salesman_recommended_opening_usd if c else None
+        ),
+        "request_gbp_first": bool(c and c.request_gbp_first),
+        "request_category_first": bool(
+            c and getattr(c, "request_category_first", False)
+        ),
+        "soft_quote_mode": bool(c and getattr(c, "soft_quote_mode", False)),
+        "soft_quote_range": (
+            list(c.soft_quote_range)
+            if (c and getattr(c, "soft_quote_range", None))
             else None
+        ),
+        "adaptive_reasoning_summary": (
+            c.reasoning_summary if (c and getattr(c, "reasoning_summary", "")) else ""
         ),
         "self_correction_attempts": len(result.self_correction_logs),
         "last_sc_verdicts": [log.verdict for log in result.self_correction_logs],
@@ -99,6 +125,18 @@ def describe_result(result: PipelineResult) -> str:
         parts.append("human_queue_payload=present")
     if result.state_updates:
         parts.append(f"state_updates={result.state_updates}")
-    if result.commercial and result.commercial.authorized_quote_usd_per_review:
-        parts.append(f"authorized_quote={result.commercial.authorized_quote_usd_per_review}")
+    c = result.commercial
+    if c:
+        if hasattr(c, "tier") and c.tier:
+            parts.append(f"tier={c.tier.value}")
+        if c.authorized_quote_usd_per_review:
+            parts.append(f"authorized_quote=${c.authorized_quote_usd_per_review}")
+        if getattr(c, "phone_call_threshold_triggered", False):
+            parts.append(
+                f"phone_route (recommend=${c.salesman_recommended_opening_usd})"
+            )
+        if c.request_gbp_first:
+            parts.append("request_gbp_first")
+        if getattr(c, "request_category_first", False):
+            parts.append("request_category_first")
     return " | ".join(parts)
